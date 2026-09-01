@@ -1,0 +1,9 @@
+products_clean.csv + product_sentiment.csv
+        ↓ (products_for_embedding.py — merges, builds embedding_text)
+products_for_embedding.csv
+        ↓ (generate_embeddings.py — not shown to me, but its output checks out)
+product_embeddings.npy + product_embedding_asins.csv
+        ↓ (load_chromadb.py — loads embeddings + metadata into ChromaDB)
+ChromaDB (5,096 products, confirmed)
+        ↓ (retrieval.py — ProductRetriever.search())
+test_retrival.py — confirmed working end-to-end

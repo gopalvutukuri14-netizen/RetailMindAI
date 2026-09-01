@@ -1,0 +1,18 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+
+data/
+
+# IDE / OS clutter
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Frontend (once you get to React) -- huge, regenerable via npm install
+frontend/node_modules/
