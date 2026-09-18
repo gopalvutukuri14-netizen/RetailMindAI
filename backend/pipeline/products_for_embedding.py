@@ -6,6 +6,7 @@ DATA_DIR = Path("data")
 
 PRODUCTS_FILE = DATA_DIR / "products_clean.csv"
 SENTIMENT_FILE = DATA_DIR / "product_sentiment.csv"
+ASPECT_FILE = DATA_DIR / "product_aspect_sentiment.csv"
 
 OUTPUT_FILE = DATA_DIR / "products_for_embedding.csv"
 
@@ -147,6 +148,14 @@ def main():
 
     print(f"Merged products: {len(merged)}")
 
+    print("Loading aspect sentiment data...")
+    aspects = pd.read_csv(ASPECT_FILE)
+    merged = merged.merge(
+        aspects, 
+        on="asin", 
+        how="left"
+    )
+
     print("Creating embedding documents...")
 
     merged["embedding_text"] = merged.apply(
@@ -169,7 +178,12 @@ def main():
         "average_sentiment_score",
         "positive_ratio",
         "negative_ratio",
-        "embedding_text"
+        "embedding_text",
+        "camera_sentiment", "camera_mentions",
+        "battery_sentiment", "battery_mentions",
+        "performance_sentiment", "performance_mentions",
+        "display_sentiment", "display_mentions",
+        "value_sentiment", "value_mentions",
     ]
 
     final_df = merged[output_columns]

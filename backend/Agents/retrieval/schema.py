@@ -36,6 +36,17 @@ class RetrievedProduct(BaseModel):
     meets_camera: Optional[bool] = None
     meets_battery: Optional[bool] = None
 
+    camera_sentiment: Optional[float] = None
+    camera_mentions: Optional[int] = None
+    battery_sentiment: Optional[float] = None
+    battery_mentions: Optional[int] = None
+    performance_sentiment: Optional[float] = None
+    performance_mentions: Optional[int] = None
+    display_sentiment: Optional[float] = None
+    display_mentions: Optional[int] = None
+    value_sentiment: Optional[float] = None
+    value_mentions: Optional[int] = None
+
 
 class RetrievalResult(BaseModel):
     """Full output of one Retrieval Agent call."""

@@ -15,6 +15,7 @@ class ScoreBreakdown(BaseModel):
     spec_match_score: Optional[float] = None
     sentiment_score: Optional[float] = None
     memory_alignment_score: Optional[float] = None
+    aspect_alignment_score: Optional[float] = None
 
     final_score: float
 

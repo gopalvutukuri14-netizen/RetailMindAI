@@ -170,7 +170,18 @@ def main():
 
             "negative_ratio": clean_metadata(
                 row.get("negative_ratio")
-            )
+            ),
+
+            "camera_sentiment": clean_metadata(row.get("camera_sentiment")),
+            "camera_mentions": clean_metadata(row.get("camera_mentions")),
+            "battery_sentiment": clean_metadata(row.get("battery_sentiment")),
+            "battery_mentions": clean_metadata(row.get("battery_mentions")),
+            "performance_sentiment": clean_metadata(row.get("performance_sentiment")),
+            "performance_mentions": clean_metadata(row.get("performance_mentions")),
+            "display_sentiment": clean_metadata(row.get("display_sentiment")),
+            "display_mentions": clean_metadata(row.get("display_mentions")),
+            "value_sentiment": clean_metadata(row.get("value_sentiment")),
+            "value_mentions": clean_metadata(row.get("value_mentions"))          
         }
 
 
