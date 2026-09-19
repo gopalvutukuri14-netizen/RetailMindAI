@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.Agents.query_understanding import QueryUnderstandingAgent
@@ -10,6 +11,16 @@ app = FastAPI(
     description="AI-powered retail product recommendation system",
     version="1.0.0",
 )
+
+# Allow the React dev server to call the API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 
 # ── Request / response models ───────────────────────────────────

@@ -1,0 +1,27 @@
+/* ── Follow-up Chips ───────────────────────────────────────── */
+.followup-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.followup-chips__chip {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-full);
+  color: var(--text-accent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+}
+
+.followup-chips__chip:hover {
+  background: var(--accent-glow);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}

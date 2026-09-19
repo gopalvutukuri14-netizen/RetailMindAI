@@ -1,0 +1,124 @@
+/* ── Message Bubble ─────────────────────────────────────────── */
+.message-bubble {
+  display: flex;
+  gap: 12px;
+  max-width: 85%;
+  animation: slideUp 350ms ease-out both;
+}
+
+/* User messages: align right */
+.message-bubble--user {
+  margin-left: auto;
+  flex-direction: row-reverse;
+}
+
+/* Bot messages: align left */
+.message-bubble--bot {
+  margin-right: auto;
+}
+
+.message-bubble__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.message-bubble__avatar--user {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-glass);
+}
+
+.message-bubble__avatar--bot {
+  background: var(--accent-gradient);
+  color: var(--bg-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.message-bubble__content {
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+/* User content bubble */
+.message-bubble--user .message-bubble__content {
+  background: var(--user-bubble-bg);
+  border: 1px solid var(--user-bubble-border);
+  border-radius: 18px 18px 4px 18px;
+  color: var(--text-primary);
+}
+
+/* Bot content bubble */
+.message-bubble--bot .message-bubble__content {
+  background: var(--bot-bubble-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--bot-bubble-border);
+  border-radius: 18px 18px 18px 4px;
+  color: var(--text-primary);
+}
+
+.message-bubble__summary {
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.message-bubble__additional {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Product cards grid inside bot bubble */
+.message-bubble__products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* Error state */
+.message-bubble__error {
+  color: #f87171;
+  font-size: 13px;
+}
+
+/* Welcome message */
+.message-bubble__welcome-queries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.message-bubble__welcome-query {
+  padding: 8px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--transition-base);
+}
+
+.message-bubble__welcome-query:hover {
+  border-color: var(--border-accent);
+  color: var(--text-accent);
+  background: var(--accent-glow);
+}
