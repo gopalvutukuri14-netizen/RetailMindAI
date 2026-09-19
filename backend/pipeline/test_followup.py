@@ -3,7 +3,7 @@ from backend.Agents.query_understanding import QueryUnderstandingAgent
 from backend.Agents.retrieval import RetrievalAgent
 from backend.Agents.memory import MemoryAgent
 from backend.Agents.ranking import RankingAgent
-from backend.Agents.followup import FollowUpAgent
+from backend.Agents.follow_up import FollowUpAgent
 
 
 def main():
