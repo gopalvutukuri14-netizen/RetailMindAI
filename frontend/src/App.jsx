@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import ProfileSelector from "./components/ProfileSelector";
 import ChatWindow from "./components/ChatWindow";
 import ChatInput from "./components/ChatInput";
@@ -21,6 +21,10 @@ export default function App() {
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Track the last recommendation's products so follow-up queries
+  // like "Compare top 2" can reference them instead of doing a fresh search.
+  const lastProductsRef = useRef([]);
+
   const sendQuery = useCallback(
     async (query) => {
       // Add user message
@@ -29,9 +33,22 @@ export default function App() {
       setIsLoading(true);
 
       try {
-        const data = await getRecommendations(query, profileId, 5);
+        const data = await getRecommendations(
+          query,
+          profileId,
+          5,
+          lastProductsRef.current
+        );
+
         const botMsg = { role: "bot", type: "recommendation", data };
         setMessages((prev) => [...prev, botMsg]);
+
+        // Update the context: if this response has product recommendations,
+        // store them for the next follow-up. If not (general response),
+        // keep the previous ones.
+        if (data.recommendations && data.recommendations.length > 0) {
+          lastProductsRef.current = data.recommendations;
+        }
       } catch (err) {
         const errorMsg = {
           role: "bot",

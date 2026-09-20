@@ -11,16 +11,24 @@ created once at module level and reused across requests — they are
 thread-safe for read-only inference and stateless API calls.
 """
 
-from backend.Agents.query_understanding import QueryUnderstandingAgent
+import os
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+from backend.Agents.query_understanding import QueryUnderstandingAgent, Intent
 from backend.Agents.retrieval import RetrievalAgent
 from backend.Agents.memory import MemoryAgent
 from backend.Agents.ranking import RankingAgent
 from backend.Agents.xai import XAIAgent
 from backend.Agents.follow_up import FollowUpAgent
-from backend.Agents.response import ResponseAgent
+from backend.Agents.response import ResponseAgent, ResponseResult, ResponseProduct
 from backend.pipeline.retrieval import ProductRetriever
 
 from .state import PipelineState
+
+load_dotenv()
 
 
 # ── Singleton agent instances ────────────────────────────────────
@@ -36,6 +44,7 @@ _ranking_agent: RankingAgent | None = None
 _xai_agent: XAIAgent | None = None
 _followup_agent: FollowUpAgent | None = None
 _response_agent: ResponseAgent | None = None
+_gemini_client: genai.Client | None = None
 
 
 def _get_query_understanding_agent() -> QueryUnderstandingAgent:
@@ -88,6 +97,16 @@ def _get_response_agent() -> ResponseAgent:
     return _response_agent
 
 
+def _get_gemini_client() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found in .env")
+        _gemini_client = genai.Client(api_key=api_key)
+    return _gemini_client
+
+
 # ── Node functions ───────────────────────────────────────────────
 # Each returns a partial dict that LangGraph merges into state.
 
@@ -100,6 +119,30 @@ def query_understanding_node(state: PipelineState) -> dict:
     agent = _get_query_understanding_agent()
     result = agent.understand(state["raw_query"])
     return {"query_understanding": result}
+
+
+def router_node(state: PipelineState) -> dict:
+    """
+    Decide which pipeline branch to take based on the parsed intent
+    and whether previous conversation context is available.
+
+    Routes:
+      - "product_pipeline"  → full retrieval → ranking → xai → response
+      - "context_response"  → use previous products for comparison/follow-up
+      - "general_response"  → handle greetings, goodbyes, general questions
+    """
+    intent = state["query_understanding"].intent
+    has_previous = bool(state.get("previous_products"))
+
+    if intent == Intent.GENERAL_QUESTION:
+        return {"route": "general_response"}
+
+    if intent in (Intent.FOLLOW_UP, Intent.COMPARISON) and has_previous:
+        return {"route": "context_response"}
+
+    # Default: full product pipeline (including follow_up/comparison
+    # without previous context — treat as a new search)
+    return {"route": "product_pipeline"}
 
 
 def retrieval_node(state: PipelineState) -> dict:
@@ -176,4 +219,141 @@ def response_node(state: PipelineState) -> dict:
         state["xai_result"],
         state["followup_result"],
     )
+    return {"response_result": result}
+
+
+# ── Shortcut nodes (bypass the heavy product pipeline) ───────────
+
+
+def general_response_node(state: PipelineState) -> dict:
+    """
+    Handle non-product queries: greetings, goodbyes, general questions
+    like "What is AMOLED?". No retrieval, no ranking — just a direct
+    LLM response.
+    """
+    client = _get_gemini_client()
+    raw_query = state["raw_query"]
+
+    prompt = f"""
+You are RetailMind AI, a friendly and helpful shopping assistant
+specializing in smartphones.
+
+The user said: "{raw_query}"
+
+This is NOT a product search — it's a greeting, goodbye, or general
+question. Respond naturally and helpfully.
+
+Rules:
+1. If it's a greeting, welcome them warmly and remind them you can
+   help find smartphones.
+2. If it's a goodbye, thank them and wish them well.
+3. If it's a general question (e.g. "What is AMOLED?"), answer it
+   concisely from your knowledge.
+4. Keep the response short (1-3 sentences).
+5. Do NOT recommend any products.
+6. Do NOT make up product names or prices.
+"""
+
+    response = client.models.generate_content(
+        model="gemini-3.5-flash-lite",
+        contents=prompt,
+        config=types.GenerateContentConfig(temperature=0.5),
+    )
+
+    result = ResponseResult(
+        summary=response.text.strip(),
+        recommendations=[],
+        additional_information="",
+        follow_up_suggestions=[
+            "Show me budget phones under 10000",
+            "What Samsung phones do you recommend?",
+            "Find me a phone with great camera",
+        ],
+    )
+    return {"response_result": result}
+
+
+def context_response_node(state: PipelineState) -> dict:
+    """
+    Handle follow-up/comparison queries that reference previously
+    shown products. Uses the previous products from conversation
+    context instead of running a new retrieval.
+    """
+    client = _get_gemini_client()
+    raw_query = state["raw_query"]
+    previous = state.get("previous_products", [])
+    intent = state["query_understanding"].intent
+
+    # Build product context from previous results
+    product_lines = []
+    for i, p in enumerate(previous, start=1):
+        title = p.get("title", "Unknown")
+        brand = p.get("brand", "N/A")
+        price = p.get("price_inr")
+        price_str = f"Rs.{price}" if price is not None else "N/A"
+        explanation = p.get("explanation", "")
+        key_factors = ", ".join(p.get("key_factors", []))
+        product_lines.append(
+            f"#{i} {title} | Brand: {brand} | Price: {price_str}\n"
+            f"    Why recommended: {explanation}\n"
+            f"    Key factors: {key_factors}"
+        )
+    products_text = "\n\n".join(product_lines)
+
+    if intent == Intent.COMPARISON:
+        task = (
+            "Compare the top 2 products in detail. Highlight their "
+            "differences in price, brand, features, and customer sentiment. "
+            "Present it as a clear side-by-side comparison."
+        )
+    else:
+        task = (
+            "Answer the user's follow-up question using ONLY the "
+            "previously shown products. Do not invent new products."
+        )
+
+    prompt = f"""
+You are RetailMind AI, a shopping assistant specializing in smartphones.
+
+The user previously received these product recommendations:
+
+{products_text}
+
+Now the user asks: "{raw_query}"
+
+Task: {task}
+
+Rules:
+1. ONLY reference the products shown above. Never invent products.
+2. Use the actual product names, prices, and details from above.
+3. Be specific and helpful.
+4. Keep the response concise but informative.
+"""
+
+    response = client.models.generate_content(
+        model="gemini-3.5-flash-lite",
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ResponseResult,
+            temperature=0.3,
+        ),
+    )
+
+    result = ResponseResult.model_validate_json(response.text)
+
+    # Override product identity from the previous context to avoid
+    # LLM hallucinating ASINs/prices.  Only keep products that match
+    # the previous set (the LLM may have selected a subset for comparison).
+    prev_by_title = {}
+    for p in previous:
+        prev_by_title[p.get("title", "").lower().strip()] = p
+
+    for rp in result.recommendations:
+        match = prev_by_title.get(rp.title.lower().strip())
+        if match:
+            rp.asin = match.get("asin", rp.asin)
+            rp.brand = match.get("brand", rp.brand)
+            rp.price_inr = match.get("price_inr", rp.price_inr)
+
     return {"response_result": result}

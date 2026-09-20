@@ -42,6 +42,10 @@ class RecommendRequest(BaseModel):
         le=20,
         description="Number of products to retrieve and rank",
     )
+    previous_products: list[dict] = Field(
+        default_factory=list,
+        description="Products from the last recommendation, for follow-up/comparison context",
+    )
 
 
 # ── Singleton agents ────────────────────────────────────────────
@@ -81,6 +85,7 @@ def recommend(request: RecommendRequest):
             raw_query=request.query,
             user_id=request.user_id,
             top_k=request.top_k,
+            previous_products=request.previous_products or None,
         )
         return result.model_dump()
     except Exception as e:

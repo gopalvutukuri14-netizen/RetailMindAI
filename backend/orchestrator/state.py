@@ -32,6 +32,12 @@ class PipelineState(TypedDict, total=False):
     user_id: str
     top_k: int
 
+    # ── Conversation context (from frontend) ──────────────────────
+    # Previous recommendation products, sent by the frontend so that
+    # follow-up/comparison queries can reference them instead of
+    # running a fresh retrieval.
+    previous_products: list[dict]
+
     # ── Agent outputs (populated as nodes execute) ────────────────
     query_understanding: QueryUnderstanding
     retrieval_result: RetrievalResult
@@ -40,6 +46,10 @@ class PipelineState(TypedDict, total=False):
     xai_result: XAIResult
     followup_result: FollowUpResult
     response_result: ResponseResult
+
+    # ── Routing ───────────────────────────────────────────────────
+    # Set by the router to control which branch the graph takes.
+    route: str
 
     # ── Error tracking ────────────────────────────────────────────
     error: Optional[str]
