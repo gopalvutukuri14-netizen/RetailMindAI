@@ -19,14 +19,14 @@ User Query + Profile + Previous Products (context)
  +-----------------------+
         |
         v
- +------ Router --------+   Intent-based conditional routing
- |         |            |
- |  product |  follow-up |  general
- |  _recom  |  /compare  |  _question
- |         |            |
- v         v            v
-Full     Context     General
-Pipeline Response    Response
+ +------------- Router ---------------+   Intent & category conditional routing
+ |          |             |           |
+ | product  | follow-up   | general   | out of
+ | _recom   | /compare    | _question | scope
+ |          |             |           |
+ v          v             v           v
+Full      Context       General     Out of
+Pipeline  Response      Response    Scope
  |
  +----+----+
  |         |
@@ -194,11 +194,11 @@ This means "Compare the top 2" actually compares the products just shown, "bye" 
 
 ## User Profiles (Demo)
 
-The system includes 3 pre-seeded user profiles for demonstrating personalization:
+The system includes 1 default unpersonalized persona plus 3 pre-seeded user preference profiles stored in SQLite (`data/memory.db`) for demonstrating personalization:
 
 | Profile ID | Behavior |
 |------------|----------|
-| `anonymous` | No personalization (default) |
+| `anonymous` | No personalization (default baseline) |
 | `budget_conscious` | Prefers phones under Rs.10,000 |
 | `camera_focused` | Prioritizes good camera quality |
 | `samsung_loyalist` | Prefers Samsung brand |
@@ -225,11 +225,11 @@ python -m venv .venv
 ### 2. Install Python dependencies
 
 ```bash
-pip install fastapi uvicorn python-dotenv google-genai pydantic
-pip install chromadb FlagEmbedding numpy pandas
-pip install vaderSentiment
-pip install langgraph
+pip install -r requirements.txt
 ```
+
+*(Or install manually: `pip install fastapi uvicorn python-dotenv google-genai pydantic chromadb FlagEmbedding numpy pandas nltk langgraph`)*
+
 
 ### 3. Set up environment variables
 
@@ -320,6 +320,23 @@ curl -X POST http://localhost:8000/recommend \
 }
 ```
 
+## Testing & Verification
+
+You can run the end-to-end pipeline smoke test directly from the command line:
+
+```bash
+# Run full orchestrator pipeline test across multiple intents
+python -m backend.orchestrator.graph
+```
+
+You can also run individual agent/pipeline test scripts located in `backend/pipeline/`:
+```bash
+python backend/pipeline/test_retrieval.py
+python backend/pipeline/test_ranking.py
+python backend/pipeline/test_xai.py
+```
+
 ## License
 
 This project is for academic/research purposes.
+
