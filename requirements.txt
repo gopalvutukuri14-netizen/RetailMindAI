@@ -1,0 +1,22 @@
+# --- Backend API ---
+fastapi
+uvicorn
+
+# --- Data validation / schemas (used across every agent) ---
+pydantic
+python-dotenv
+
+# --- LLM (Query Understanding, XAI, Follow-up, Response agents) ---
+google-genai
+
+# --- Orchestration ---
+langgraph
+
+# --- Retrieval / vector search ---
+chromadb
+FlagEmbedding
+
+# --- Data pipeline ---
+pandas
+numpy
+nltk
