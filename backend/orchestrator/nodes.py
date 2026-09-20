@@ -123,25 +123,47 @@ def query_understanding_node(state: PipelineState) -> dict:
 
 def router_node(state: PipelineState) -> dict:
     """
-    Decide which pipeline branch to take based on the parsed intent
-    and whether previous conversation context is available.
+    Decide which pipeline branch to take based on the parsed intent,
+    category scope, and whether previous conversation context is available.
 
     Routes:
       - "product_pipeline"  → full retrieval → ranking → xai → response
       - "context_response"  → use previous products for comparison/follow-up
       - "general_response"  → handle greetings, goodbyes, general questions
+      - "out_of_scope"      → category not in our dataset (we only have cell phones)
     """
-    intent = state["query_understanding"].intent
+    qu = state["query_understanding"]
+    intent = qu.intent
     has_previous = bool(state.get("previous_products"))
 
+    # 1. General questions (greetings, goodbyes, "what is AMOLED?")
     if intent == Intent.GENERAL_QUESTION:
         return {"route": "general_response"}
 
+    # 2. Follow-up / comparison with previous context
     if intent in (Intent.FOLLOW_UP, Intent.COMPARISON) and has_previous:
         return {"route": "context_response"}
 
-    # Default: full product pipeline (including follow_up/comparison
-    # without previous context — treat as a new search)
+    # 3. Out-of-scope category detection
+    #    Our dataset only covers: cell phones, smartphones, mobile phones,
+    #    and phone accessories. Everything else is out of scope.
+    category = (qu.category or "").lower().strip()
+
+    # If category is empty, the LLM couldn't determine it — default to
+    # in-scope (assume it's about phones).
+    if category:
+        IN_SCOPE_KEYWORDS = [
+            "phone", "smartphone", "mobile", "cell", "cellphone",
+            "handset", "android", "iphone", "samsung", "accessory",
+            "accessories", "case", "charger", "cable", "headset",
+            "earphone", "earbuds", "screen protector",
+        ]
+        is_in_scope = any(kw in category for kw in IN_SCOPE_KEYWORDS)
+
+        if not is_in_scope:
+            return {"route": "out_of_scope"}
+
+    # 4. Default: full product pipeline
     return {"route": "product_pipeline"}
 
 
@@ -268,6 +290,35 @@ Rules:
             "Show me budget phones under 10000",
             "What Samsung phones do you recommend?",
             "Find me a phone with great camera",
+        ],
+    )
+    return {"response_result": result}
+
+
+def out_of_scope_node(state: PipelineState) -> dict:
+    """
+    Handle queries about categories we don't have data for.
+    Our dataset only covers cell phones & accessories — anything else
+    (watches, laptops, TVs, etc.) gets a polite redirect.
+    """
+    category = (state["query_understanding"].category or "unknown product").strip()
+    raw_query = state["raw_query"]
+
+    result = ResponseResult(
+        summary=(
+            f"I appreciate your interest in {category}! However, RetailMind AI "
+            f"currently specializes in **cell phones and smartphone accessories** only. "
+            f"I don't have data on {category} in my catalog, so I can't provide "
+            f"accurate recommendations for that category.\n\n"
+            f"But I'd love to help you find the perfect phone! Try asking something like "
+            f"the suggestions below."
+        ),
+        recommendations=[],
+        additional_information="",
+        follow_up_suggestions=[
+            "Show me budget phones under 10000",
+            "Best Samsung phone with good camera",
+            "Premium phone with great display and battery",
         ],
     )
     return {"response_result": result}

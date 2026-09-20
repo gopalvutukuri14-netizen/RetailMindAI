@@ -43,6 +43,7 @@ from .nodes import (
     response_node,
     general_response_node,
     context_response_node,
+    out_of_scope_node,
 )
 
 from backend.Agents.response import ResponseResult
@@ -76,6 +77,7 @@ def build_graph() -> StateGraph:
     # Shortcut nodes
     graph.add_node("general_response", general_response_node)
     graph.add_node("context_response", context_response_node)
+    graph.add_node("out_of_scope", out_of_scope_node)
 
     # ── Wire edges ───────────────────────────────────────────────
     # Entry point
@@ -93,13 +95,15 @@ def build_graph() -> StateGraph:
             return ["retrieval", "memory"]
         elif route == "context_response":
             return ["context_response"]
+        elif route == "out_of_scope":
+            return ["out_of_scope"]
         else:
             return ["general_response"]
 
     graph.add_conditional_edges(
         "router",
         _route_to_list,
-        ["retrieval", "memory", "context_response", "general_response"],
+        ["retrieval", "memory", "context_response", "general_response", "out_of_scope"],
     )
 
     # Product pipeline: ranking waits for both retrieval and memory
@@ -118,6 +122,7 @@ def build_graph() -> StateGraph:
     graph.add_edge("response", END)
     graph.add_edge("general_response", END)
     graph.add_edge("context_response", END)
+    graph.add_edge("out_of_scope", END)
 
     return graph.compile()
 

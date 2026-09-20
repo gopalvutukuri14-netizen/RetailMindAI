@@ -4,48 +4,60 @@
 
 RetailMind AI takes a natural-language shopping query (e.g. *"Best Samsung phone under 15000 with good camera"*), runs it through a pipeline of 7 specialized AI agents orchestrated by LangGraph, and returns ranked product recommendations with transparent explanations grounded in real Amazon review data.
 
+The system supports **conversational context** — follow-up queries like *"Compare the top 2"* reference previous results, and non-product queries like *"hello"* or *"bye"* are handled conversationally without triggering the product pipeline.
+
 ---
 
 ## Architecture
 
 ```
-User Query + Profile
+User Query + Profile + Previous Products (context)
         |
         v
  +-----------------------+
  | Query Understanding   |   Parses intent, budget, brand, specs, quality tags
  +-----------------------+
         |
-   +----+----+
-   |         |
-   v         v
+        v
+ +------ Router --------+   Intent-based conditional routing
+ |         |            |
+ |  product |  follow-up |  general
+ |  _recom  |  /compare  |  _question
+ |         |            |
+ v         v            v
+Full     Context     General
+Pipeline Response    Response
+ |
+ +----+----+
+ |         |
+ v         v
 +----------+ +--------+
 | Retrieval| | Memory |     Parallel: semantic search + user preference lookup
 +----------+ +--------+
-   |         |
-   +----+----+
-        |
-        v
- +-----------------------+
- | Ranking               |   Scores by similarity, spec match, sentiment,
- +-----------------------+   aspect alignment, memory alignment
-        |
-   +----+----+
-   |         |
-   v         v
- +-----+  +----------+
- | XAI |  | Follow-up|      Parallel: explanations + next-step suggestions
- +-----+  +----------+
-   |         |
-   +----+----+
-        |
-        v
- +-----------------------+
- | Response              |   Synthesizes final user-facing response
- +-----------------------+
-        |
-        v
-   JSON Response
+ |         |
+ +----+----+
+      |
+      v
+ +---------+
+ | Ranking |               Scores by similarity, spec match, sentiment,
+ +---------+               aspect alignment, memory alignment
+      |
+ +----+----+
+ |         |
+ v         v
++-----+  +----------+
+| XAI |  | Follow-up|      Parallel: explanations + next-step suggestions
++-----+  +----------+
+ |         |
+ +----+----+
+      |
+      v
+ +-----------+
+ | Response  |              Synthesizes final user-facing response
+ +-----------+
+      |
+      v
+ JSON Response
 ```
 
 ## Tech Stack
@@ -157,6 +169,19 @@ ChromaDB (5,096 products with embeddings + metadata + sentiment)
 | **Follow-up** | Suggest next actions | Query + rankings | 2-4 contextual suggestions |
 | **Response** | Synthesize final output | All upstream outputs | Summary + product cards + follow-ups |
 
+### Intent-Based Routing
+
+After Query Understanding parses the intent and category, the orchestrator routes to one of four paths:
+
+| Condition | Route | What Happens |
+|-----------|-------|-------------|
+| Product query (in-scope) | **Full Pipeline** | Retrieval + Memory → Ranking → XAI + Follow-up → Response |
+| `comparison` / `follow_up` (with context) | **Context Response** | Uses previously shown products to compare or answer — skips retrieval/ranking |
+| `general_question` | **General Response** | Conversational reply (greetings, goodbyes, general knowledge) — no products |
+| Out-of-scope category (watches, laptops, etc.) | **Out of Scope** | Polite redirect explaining we only cover cell phones — no products |
+
+This means "Compare the top 2" actually compares the products just shown, "bye" gets a friendly goodbye, "i want watches under 1000" gets a polite redirect, and new phone queries still run the full pipeline.
+
 ### Ranking Signals (Weighted)
 
 | Signal | Weight | Source |
@@ -245,7 +270,7 @@ npm run dev
 | `/understand` | POST | Debug: parse query only |
 | `/recommend` | POST | **Full pipeline** — returns ranked recommendations |
 
-### Example Request
+### Example: Product Recommendation
 
 ```bash
 curl -X POST http://localhost:8000/recommend \
@@ -254,6 +279,21 @@ curl -X POST http://localhost:8000/recommend \
     "query": "Best Samsung phone under 15000 with good camera",
     "user_id": "camera_focused",
     "top_k": 5
+  }'
+```
+
+### Example: Follow-up with Context
+
+```bash
+curl -X POST http://localhost:8000/recommend \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Compare the top 2 options",
+    "user_id": "camera_focused",
+    "previous_products": [
+      {"asin": "B00...", "title": "Samsung Galaxy A...", "brand": "Samsung", "price_inr": 12500},
+      {"asin": "B01...", "title": "Samsung Galaxy M...", "brand": "Samsung", "price_inr": 14000}
+    ]
   }'
 ```
 
