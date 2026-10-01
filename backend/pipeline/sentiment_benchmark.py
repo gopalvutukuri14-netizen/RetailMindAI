@@ -1,26 +1,25 @@
-from pathlib import Path
 import time
+import re
+from collections import Counter, defaultdict
 
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 
 # ============================================================
-# PATHS
+# CONFIG
 # ============================================================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-PRODUCTS_FILE = PROJECT_ROOT / "data" / "products_master.parquet"
-REVIEWS_FILE = PROJECT_ROOT / "data" / "reviews_master.parquet"
-
-OUTPUT_FILE = PROJECT_ROOT / "data" / "sentiment_benchmark_20k.parquet"
+PRODUCTS_PATH = "data/products_master.parquet"
+REVIEWS_PATH = "data/reviews_master.parquet"
+OUTPUT_PATH = "data/sentiment_benchmark_20k_balanced.parquet"
 
 SAMPLE_SIZE = 20_000
+RANDOM_STATE = 42
 
 
 # ============================================================
-# CATEGORY-AWARE ASPECTS
+# CATEGORY-SPECIFIC ASPECTS
 # ============================================================
 
 ASPECTS = {
@@ -96,148 +95,260 @@ ASPECTS = {
 # ============================================================
 
 ASPECT_KEYWORDS = {
+
     "camera": [
-        "camera", "photo", "photos", "picture", "pictures",
-        "image", "images", "video", "zoom", "lens"
+        "camera",
+        "cameras",
+        "photo",
+        "photos",
+        "picture",
+        "pictures",
+        "photography",
+        "video quality",
     ],
 
     "battery": [
-        "battery", "battery life", "charge", "charging",
-        "lasts", "power"
+        "battery",
+        "battery life",
+        "backup",
+        "charge lasts",
     ],
 
     "display": [
-        "display", "screen", "resolution", "amoled", "lcd",
-        "brightness", "touchscreen"
+        "display",
+        "screen",
+        "screens",
+        "resolution",
+        "brightness",
+        "touchscreen",
+        "touch screen",
     ],
 
     "performance": [
-        "performance", "fast", "slow", "speed", "processor",
-        "lag", "laggy", "responsive"
+        "performance",
+        "speed",
+        "fast",
+        "slow",
+        "processor",
+        "cpu",
+        "lag",
+        "lags",
     ],
 
     "charging": [
-        "charging", "charger", "fast charge", "wireless charging"
+        "charging",
+        "charger",
+        "charging speed",
+        "fast charging",
+        "charge",
     ],
 
     "software": [
-        "software", "android", "ios", "update", "updates",
-        "app", "apps", "interface"
+        "software",
+        "android",
+        "ios",
+        "operating system",
+        "os",
+        "app",
+        "apps",
+        "update",
+        "updates",
     ],
 
     "build_quality": [
-        "build", "built", "construction", "solid", "sturdy",
-        "premium", "plastic", "metal"
-    ],
-
-    "sound_quality": [
-        "sound", "audio", "music", "bass", "treble",
-        "volume", "sound quality"
-    ],
-
-    "connectivity": [
-        "bluetooth", "wifi", "wi-fi", "connection",
-        "connectivity", "signal", "usb"
-    ],
-
-    "quality": [
-        "quality", "good quality", "poor quality",
-        "excellent quality"
-    ],
-
-    "durability": [
-        "durable", "durability", "last", "lasting",
-        "sturdy", "strong", "break", "broken"
-    ],
-
-    "size": [
-        "size", "small", "large", "big", "tiny",
-        "length", "width", "height"
-    ],
-
-    "ease_of_use": [
-        "easy", "easier", "simple", "difficult",
-        "hard to use", "easy to use", "setup"
-    ],
-
-    "material": [
-        "material", "fabric", "leather", "cotton",
-        "steel", "metal", "plastic", "wood"
-    ],
-
-    "design": [
-        "design", "style", "stylish", "looks",
-        "looking", "appearance"
+        "build quality",
+        "build",
+        "construction",
+        "solid",
+        "sturdy",
+        "plastic",
+        "metal",
     ],
 
     "value": [
-        "value", "price", "worth", "money",
-        "expensive", "cheap", "deal"
+        "value",
+        "price",
+        "pricing",
+        "cost",
+        "money",
+        "worth",
+        "expensive",
+        "cheap",
+        "affordable",
+    ],
+
+    "sound_quality": [
+        "sound",
+        "audio",
+        "speaker",
+        "speakers",
+        "bass",
+        "volume",
+        "sound quality",
+    ],
+
+    "connectivity": [
+        "connectivity",
+        "bluetooth",
+        "wifi",
+        "wi-fi",
+        "network",
+        "connection",
+        "signal",
+        "5g",
+        "4g",
+    ],
+
+    "ease_of_use": [
+        "easy to use",
+        "easy",
+        "simple",
+        "setup",
+        "installation",
+        "install",
+        "user friendly",
+        "user-friendly",
+    ],
+
+    "quality": [
+        "quality",
+        "well made",
+        "well-made",
+        "poor quality",
+        "good quality",
+    ],
+
+    "durability": [
+        "durability",
+        "durable",
+        "lasts",
+        "long lasting",
+        "long-lasting",
+        "sturdy",
+        "broke",
+        "broken",
+    ],
+
+    "size": [
+        "size",
+        "sized",
+        "small",
+        "large",
+        "big",
+        "tiny",
+        "dimensions",
+        "fit",
+    ],
+
+    "material": [
+        "material",
+        "fabric",
+        "cotton",
+        "leather",
+        "wood",
+        "metal",
+        "plastic",
+    ],
+
+    "design": [
+        "design",
+        "style",
+        "stylish",
+        "look",
+        "looks",
+        "appearance",
+        "beautiful",
     ],
 
     "fit": [
-        "fit", "fits", "fitting", "tight", "loose",
-        "size", "comfortable"
+        "fit",
+        "fits",
+        "fitting",
+        "tight",
+        "loose",
+        "small",
+        "large",
     ],
 
     "comfort": [
-        "comfortable", "comfort", "uncomfortable",
-        "soft", "cushion"
+        "comfort",
+        "comfortable",
+        "uncomfortable",
+        "soft",
+        "cushion",
+        "cushioning",
     ],
 
     "appearance": [
-        "appearance", "look", "looks", "color",
-        "colour", "beautiful", "attractive"
+        "appearance",
+        "look",
+        "looks",
+        "color",
+        "colour",
+        "beautiful",
+        "attractive",
     ],
 }
 
 
 # ============================================================
-# HELPERS
+# SENTENCE SPLITTING
 # ============================================================
 
-analyzer = SentimentIntensityAnalyzer()
-
-
-def get_sentiment(text: str) -> tuple[float, str]:
+def split_sentences(text):
     """
-    Calculate VADER compound sentiment score and label.
+    Basic sentence splitter.
+
+    We intentionally keep this lightweight because this is a
+    large-scale benchmark and later the same method may run
+    over 1.5M reviews.
     """
 
-    if not isinstance(text, str) or not text.strip():
-        return 0.0, "neutral"
+    if not text:
+        return []
 
-    score = analyzer.polarity_scores(text)["compound"]
+    text = str(text).strip()
 
-    if score >= 0.05:
-        label = "positive"
-    elif score <= -0.05:
-        label = "negative"
-    else:
-        label = "neutral"
+    if not text:
+        return []
 
-    return score, label
+    sentences = re.split(
+        r"(?<=[.!?])\s+|\n+",
+        text
+    )
+
+    return [
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip()
+    ]
 
 
-def detect_aspects(text: str, category: str) -> list[str]:
+# ============================================================
+# ASPECT DETECTION
+# ============================================================
+
+def detect_aspects(text, category):
     """
     Detect category-specific aspects using keyword matching.
     """
 
-    if not isinstance(text, str):
+    if not text:
         return []
 
     text_lower = text.lower()
 
-    allowed_aspects = ASPECTS.get(category, [])
+    category_aspects = ASPECTS.get(category, [])
 
     detected = []
 
-    for aspect in allowed_aspects:
+    for aspect in category_aspects:
+
         keywords = ASPECT_KEYWORDS.get(aspect, [])
 
         for keyword in keywords:
-            if keyword in text_lower:
+
+            if keyword.lower() in text_lower:
                 detected.append(aspect)
                 break
 
@@ -245,203 +356,521 @@ def detect_aspects(text: str, category: str) -> list[str]:
 
 
 # ============================================================
+# ASPECT SENTIMENT
+# ============================================================
+
+def calculate_aspect_sentiment(text, aspects):
+    """
+    Calculate sentiment for each detected aspect.
+
+    Instead of assigning the overall review sentiment to every
+    aspect, we look for sentences containing the aspect's
+    keywords and run VADER on those sentences.
+
+    Returns:
+        {
+            "battery": 0.72,
+            "camera": -0.45
+        }
+    """
+
+    if not text or not aspects:
+        return {}
+
+    sentences = split_sentences(text)
+
+    if not sentences:
+        return {}
+
+    sentence_data = [
+        (sentence, sentence.lower())
+        for sentence in sentences
+    ]
+
+    aspect_scores = {}
+
+    for aspect in aspects:
+
+        keywords = ASPECT_KEYWORDS.get(aspect, [])
+
+        matched_sentences = []
+
+        for sentence, sentence_lower in sentence_data:
+
+            for keyword in keywords:
+
+                if keyword.lower() in sentence_lower:
+                    matched_sentences.append(sentence)
+                    break
+
+        if not matched_sentences:
+            continue
+
+        scores = []
+
+        for sentence in matched_sentences:
+
+            score = analyzer.polarity_scores(sentence)["compound"]
+
+            scores.append(score)
+
+        if scores:
+            aspect_scores[aspect] = round(
+                sum(scores) / len(scores),
+                4
+            )
+
+    return aspect_scores
+
+
+# ============================================================
+# LABEL
+# ============================================================
+
+def sentiment_label(score):
+
+    if score >= 0.05:
+        return "positive"
+
+    if score <= -0.05:
+        return "negative"
+
+    return "neutral"
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
-def main():
+print("=" * 70)
+print("RETAILMIND AI - ASPECT SENTIMENT 20K BALANCED BENCHMARK")
+print("=" * 70)
 
-    print("=" * 70)
-    print("RETAILMIND AI - 20K SENTIMENT BENCHMARK")
-    print("=" * 70)
 
-    start = time.perf_counter()
+# ------------------------------------------------------------
+# Load products
+# ------------------------------------------------------------
 
-    # --------------------------------------------------------
-    # LOAD PRODUCTS
-    # --------------------------------------------------------
+print("\nLoading products...")
 
-    print("\nLoading product categories...")
+products = pd.read_parquet(PRODUCTS_PATH)
 
-    products = pd.read_parquet(
-        PRODUCTS_FILE,
-        columns=[
-            "parent_asin",
-            "main_category",
-        ],
+print(f"Products loaded: {len(products):,}")
+
+
+required_product_columns = [
+    "parent_asin",
+    "main_category",
+]
+
+missing_product_columns = [
+    col
+    for col in required_product_columns
+    if col not in products.columns
+]
+
+if missing_product_columns:
+    raise ValueError(
+        f"Missing product columns: {missing_product_columns}"
     )
 
-    print(f"Products loaded: {len(products):,}")
 
-    # --------------------------------------------------------
-    # LOAD SAMPLE REVIEWS
-    # --------------------------------------------------------
+products_small = products[
+    [
+        "parent_asin",
+        "main_category",
+    ]
+].drop_duplicates("parent_asin")
 
-    print("\nLoading review sample...")
 
-    reviews = pd.read_parquet(
-        REVIEWS_FILE,
-        columns=[
-            "parent_asin",
-            "asin",
-            "rating",
-            "title",
-            "text",
-            "timestamp",
-            "verified_purchase",
-            "helpful_vote",
-        ],
+# ------------------------------------------------------------
+# Load reviews
+# ------------------------------------------------------------
+
+print("\nLoading reviews...")
+
+reviews = pd.read_parquet(REVIEWS_PATH)
+
+print(f"Total reviews: {len(reviews):,}")
+
+
+required_review_columns = [
+    "parent_asin",
+    "rating",
+    "title",
+    "text",
+]
+
+missing_review_columns = [
+    col
+    for col in required_review_columns
+    if col not in reviews.columns
+]
+
+if missing_review_columns:
+    raise ValueError(
+        f"Missing review columns: {missing_review_columns}"
     )
 
-    print(f"Total reviews available: {len(reviews):,}")
 
-    # Deterministic sample
-    reviews = reviews.head(SAMPLE_SIZE).copy()
+# ------------------------------------------------------------
+# Join category
+# ------------------------------------------------------------
 
-    print(f"Benchmark reviews: {len(reviews):,}")
+print("\nJoining categories...")
 
-    # --------------------------------------------------------
-    # JOIN CATEGORY
-    # --------------------------------------------------------
+reviews = reviews.merge(
+    products_small,
+    on="parent_asin",
+    how="left",
+)
 
-    print("\nJoining product categories...")
+missing_categories = reviews["main_category"].isna().sum()
 
-    reviews = reviews.merge(
-        products,
-        on="parent_asin",
-        how="left",
-        validate="many_to_one",
+print(f"Reviews without category: {missing_categories:,}")
+
+if missing_categories > 0:
+    raise ValueError(
+        "Some reviews could not be joined to a product category."
     )
 
-    missing_category = reviews["main_category"].isna().sum()
 
-    print(f"Reviews without category: {missing_category:,}")
+# ------------------------------------------------------------
+# Balanced sampling
+# ------------------------------------------------------------
 
-    # --------------------------------------------------------
-    # COMBINE TITLE + REVIEW
-    # --------------------------------------------------------
+print("\nCreating balanced six-category sample...")
 
-    reviews["review_text"] = (
-        reviews["title"].fillna("").astype(str)
-        + ". "
-        + reviews["text"].fillna("").astype(str)
-    ).str.strip()
+categories = list(ASPECTS.keys())
 
-    # --------------------------------------------------------
-    # VADER
-    # --------------------------------------------------------
+base_count = SAMPLE_SIZE // len(categories)
 
-    print("\nRunning VADER sentiment...")
+remainder = SAMPLE_SIZE % len(categories)
 
-    sentiment_scores = []
-    sentiment_labels = []
+samples = []
 
-    for text in reviews["review_text"]:
-        score, label = get_sentiment(text)
+for index, category in enumerate(categories):
 
-        sentiment_scores.append(score)
-        sentiment_labels.append(label)
-
-    reviews["sentiment_score"] = sentiment_scores
-    reviews["sentiment_label"] = sentiment_labels
-
-    # --------------------------------------------------------
-    # ASPECT DETECTION
-    # --------------------------------------------------------
-
-    print("Running category-aware aspect detection...")
-
-    reviews["aspects"] = [
-        detect_aspects(text, category)
-        for text, category
-        in zip(
-            reviews["review_text"],
-            reviews["main_category"],
-        )
+    category_reviews = reviews[
+        reviews["main_category"] == category
     ]
 
-    reviews["aspect_count"] = reviews["aspects"].apply(len)
+    n = base_count + (1 if index < remainder else 0)
 
-    # --------------------------------------------------------
-    # SAVE
-    # --------------------------------------------------------
+    if len(category_reviews) < n:
 
-    reviews.to_parquet(
-        OUTPUT_FILE,
-        index=False,
-        engine="pyarrow",
+        raise ValueError(
+            f"Not enough reviews for {category}: "
+            f"{len(category_reviews):,} available, "
+            f"{n:,} required"
+        )
+
+    sampled = category_reviews.sample(
+        n=n,
+        random_state=RANDOM_STATE + index,
     )
 
-    elapsed = time.perf_counter() - start
-
-    # --------------------------------------------------------
-    # REPORT
-    # --------------------------------------------------------
-
-    print("\n" + "=" * 70)
-    print("BENCHMARK RESULTS")
-    print("=" * 70)
-
-    print(f"Reviews processed       : {len(reviews):,}")
-    print(f"Processing time         : {elapsed:.2f} seconds")
-    print(f"Reviews / second        : {len(reviews) / elapsed:,.0f}")
-
-    print("\nSentiment distribution:")
-    print(reviews["sentiment_label"].value_counts())
-
-    print("\nAverage sentiment score:")
-    print(f"{reviews['sentiment_score'].mean():.4f}")
-
-    print("\nReviews with detected aspects:")
-    print(
-        f"{(reviews['aspect_count'] > 0).sum():,}"
-        f" / {len(reviews):,}"
-    )
-
-    print("\nAspect frequency:")
-
-    aspect_counts = {}
-
-    for aspects in reviews["aspects"]:
-        for aspect in aspects:
-            aspect_counts[aspect] = (
-                aspect_counts.get(aspect, 0) + 1
-            )
-
-    for aspect, count in sorted(
-        aspect_counts.items(),
-        key=lambda x: x[1],
-        reverse=True,
-    ):
-        print(f"  {aspect:20s}: {count:,}")
-
-    print("\nCategory distribution:")
-    print(reviews["main_category"].value_counts())
-
-    print("\nSample processed reviews:")
-    print("-" * 70)
+    samples.append(sampled)
 
     print(
-        reviews[
-            [
-                "parent_asin",
-                "main_category",
-                "rating",
-                "sentiment_score",
-                "sentiment_label",
-                "aspects",
-            ]
-        ]
-        .head(10)
-        .to_string(index=False)
+        f"  {category:35s}: {len(sampled):,}"
     )
 
-    print("\nOutput:")
-    print(OUTPUT_FILE)
 
-    print("\n" + "=" * 70)
-    print("BENCHMARK COMPLETE")
-    print("=" * 70)
+sample = pd.concat(
+    samples,
+    ignore_index=True
+)
+
+# Shuffle final dataset
+sample = sample.sample(
+    frac=1,
+    random_state=RANDOM_STATE
+).reset_index(drop=True)
+
+print(f"\nBalanced sample: {len(sample):,}")
 
 
-if __name__ == "__main__":
-    main()
+# ------------------------------------------------------------
+# Combine title + text
+# ------------------------------------------------------------
+
+sample["review_text"] = (
+    sample["title"].fillna("").astype(str)
+    + ". "
+    + sample["text"].fillna("").astype(str)
+).str.strip()
+
+
+# ------------------------------------------------------------
+# Initialize VADER
+# ------------------------------------------------------------
+
+analyzer = SentimentIntensityAnalyzer()
+
+
+# ------------------------------------------------------------
+# Overall + aspect sentiment
+# ------------------------------------------------------------
+
+print("\nRunning overall VADER + aspect-level sentiment...")
+
+start_time = time.time()
+
+sentiment_scores = []
+sentiment_labels = []
+detected_aspects = []
+aspect_sentiments = []
+
+for text_value, category in zip(
+    sample["review_text"],
+    sample["main_category"]
+):
+
+    # Overall review sentiment
+    overall_score = analyzer.polarity_scores(
+        text_value
+    )["compound"]
+
+    label = sentiment_label(overall_score)
+
+    # Detect aspects
+    aspects = detect_aspects(
+        text_value,
+        category
+    )
+
+    # Aspect-specific sentiment
+    aspect_scores = calculate_aspect_sentiment(
+        text_value,
+        aspects
+    )
+
+    sentiment_scores.append(
+        round(overall_score, 4)
+    )
+
+    sentiment_labels.append(label)
+
+    detected_aspects.append(aspects)
+
+    aspect_sentiments.append(aspect_scores)
+
+
+sample["sentiment_score"] = sentiment_scores
+
+sample["sentiment_label"] = sentiment_labels
+
+sample["aspects"] = detected_aspects
+
+sample["aspect_sentiments"] = aspect_sentiments
+
+
+elapsed = time.time() - start_time
+
+reviews_per_second = (
+    len(sample) / elapsed
+    if elapsed > 0
+    else 0
+)
+
+
+# ============================================================
+# RESULTS
+# ============================================================
+
+print("\n" + "=" * 70)
+print("BENCHMARK RESULTS")
+print("=" * 70)
+
+print(
+    f"Reviews processed : {len(sample):,}"
+)
+
+print(
+    f"Processing time   : {elapsed:.2f} seconds"
+)
+
+print(
+    f"Reviews / second  : {reviews_per_second:,.0f}"
+)
+
+
+# ------------------------------------------------------------
+# Category distribution
+# ------------------------------------------------------------
+
+print("\nCategory distribution:")
+
+print(
+    sample["main_category"]
+    .value_counts()
+    .sort_index()
+)
+
+
+# ------------------------------------------------------------
+# Overall sentiment
+# ------------------------------------------------------------
+
+print("\nOverall sentiment distribution:")
+
+print(
+    sample["sentiment_label"]
+    .value_counts()
+)
+
+
+print(
+    f"\nAverage overall sentiment score: "
+    f"{sample['sentiment_score'].mean():.4f}"
+)
+
+
+# ------------------------------------------------------------
+# Aspect detection
+# ------------------------------------------------------------
+
+sample["has_aspect"] = sample["aspects"].apply(
+    lambda x: len(x) > 0
+)
+
+print("\nAspect detection by category:")
+
+aspect_summary = (
+    sample
+    .groupby("main_category", observed=False)
+    .agg(
+        reviews=("parent_asin", "size"),
+        reviews_with_aspects=("has_aspect", "sum"),
+    )
+)
+
+aspect_summary["detection_rate"] = (
+    aspect_summary["reviews_with_aspects"]
+    / aspect_summary["reviews"]
+    * 100
+)
+
+print(aspect_summary)
+
+
+# ------------------------------------------------------------
+# Aspect frequency
+# ------------------------------------------------------------
+
+print("\nAspect frequency by category:")
+
+for category in categories:
+
+    category_rows = sample[
+        sample["main_category"] == category
+    ]
+
+    counter = Counter()
+
+    for aspects in category_rows["aspects"]:
+
+        counter.update(aspects)
+
+    print(f"\n{category}")
+
+    for aspect, count in counter.most_common():
+
+        print(
+            f"  {aspect:20s}: {count:,}"
+        )
+
+
+# ------------------------------------------------------------
+# Aspect sentiment statistics
+# ------------------------------------------------------------
+
+print("\nAspect sentiment statistics:")
+
+aspect_score_values = defaultdict(list)
+
+for aspect_scores in sample["aspect_sentiments"]:
+
+    for aspect, score in aspect_scores.items():
+
+        aspect_score_values[aspect].append(score)
+
+
+for aspect, scores in sorted(
+    aspect_score_values.items()
+):
+
+    print(
+        f"  {aspect:20s} "
+        f"count={len(scores):5d} "
+        f"avg={sum(scores) / len(scores):.4f}"
+    )
+
+
+# ------------------------------------------------------------
+# Rating vs sentiment
+# ------------------------------------------------------------
+
+print("\nRating vs overall sentiment:")
+
+rating_summary = (
+    sample
+    .groupby("rating", observed=False)["sentiment_score"]
+    .agg(
+        ["count", "mean"]
+    )
+    .round(4)
+)
+
+print(rating_summary)
+
+
+# ------------------------------------------------------------
+# Sample output
+# ------------------------------------------------------------
+
+print("\nSample processed reviews:")
+
+print("-" * 70)
+
+display_columns = [
+    "parent_asin",
+    "main_category",
+    "rating",
+    "sentiment_score",
+    "sentiment_label",
+    "aspects",
+    "aspect_sentiments",
+]
+
+print(
+    sample[
+        display_columns
+    ]
+    .head(15)
+    .to_string(index=False)
+)
+
+
+# ------------------------------------------------------------
+# Save
+# ------------------------------------------------------------
+
+sample.to_parquet(
+    OUTPUT_PATH,
+    index=False
+)
+
+print("\nOutput:")
+
+print(OUTPUT_PATH)
+
+
+# ============================================================
+# COMPLETE
+# ============================================================
+
+print("\n" + "=" * 70)
+print("ASPECT SENTIMENT BENCHMARK COMPLETE")
+print("=" * 70)
