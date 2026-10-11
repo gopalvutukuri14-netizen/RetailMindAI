@@ -1,12 +1,15 @@
 import os
+import logging
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from .schema import FollowUpResult
+from .schema import FollowUpResult, FollowUpSuggestion, SuggestionType
+from backend.Agents.gemini_retry import call_with_retry
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
 MODEL_NAME = "gemini-3.5-flash-lite"
 
 
@@ -21,16 +24,39 @@ class FollowUpAgent:
         facts = self._compute_result_facts(ranking_result)
         prompt = self._build_prompt(query, ranking_result, facts)
 
-        response = self.client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=FollowUpResult,
-                temperature=0.3,
-            ),
-        )
-        return FollowUpResult.model_validate_json(response.text)
+        def _call():
+            return self.client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=FollowUpResult,
+                    temperature=0.3,
+                ),
+            )
+
+        try:
+            response = call_with_retry(_call, context="FollowUpAgent")
+            if not response.text:
+                raise RuntimeError("FollowUpAgent: empty Gemini response")
+            return FollowUpResult.model_validate_json(response.text)
+        except Exception as exc:
+            logger.warning(
+                "FollowUpAgent: falling back to static suggestions after error: %s",
+                exc,
+            )
+            return FollowUpResult(
+                suggestions=[
+                    FollowUpSuggestion(
+                        suggestion_text="Want me to compare the top 2 options?",
+                        suggestion_type=SuggestionType.COMPARE,
+                    ),
+                    FollowUpSuggestion(
+                        suggestion_text="Shall I narrow results by budget?",
+                        suggestion_type=SuggestionType.REFINE_FILTER,
+                    ),
+                ]
+            )
 
     def _compute_result_facts(self, ranking_result) -> dict:
         products = ranking_result.products

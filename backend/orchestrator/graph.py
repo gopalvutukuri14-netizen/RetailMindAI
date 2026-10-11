@@ -167,7 +167,16 @@ def run_pipeline(
     # returns the final accumulated state dict.
     final_state = pipeline.invoke(initial_state)
 
-    return final_state["response_result"]
+    response_result = final_state.get("response_result")
+    if response_result is None:
+        # This should not happen in the normal graph flow, but guard
+        # against unexpected routing gaps to avoid an opaque KeyError.
+        raise RuntimeError(
+            "Pipeline completed without producing a response_result. "
+            "Check the graph wiring and node return keys."
+        )
+
+    return response_result
 
 
 # ── Demo / smoke test ────────────────────────────────────────────

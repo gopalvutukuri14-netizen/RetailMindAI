@@ -18,7 +18,7 @@ class RetrievalAgent:
     PRODUCT_TYPE_ALIASES = {
         "phone": [
             "phone", "smartphone", "mobile phone", "cell phone",
-            "galaxy",
+            "galaxy", "iphone",
         ],
         "headphones": [
             "headphone", "headphones", "headset",
@@ -45,20 +45,56 @@ class RetrievalAgent:
 
     PRODUCT_TYPE_EXCLUSIONS = {
         "phone": [
+            # Case / cover accessories — use compound phrases to avoid
+            # matching product titles that contain "case" in a brand name
             "phone case", "phone cover", "protective cover",
-            "protective case", "screen protector", "phone holder",
-            "wireless charging pad", "charging pad",
-            "charging stand", "phone charger", "wireless charger",
+            "protective case", "back cover", "back case",
+            "flip cover", "flip case", "bumper case",
+            "wallet case", "leather case", "silicone case",
+            # Screen accessories
+            "screen protector", "screen guard", "tempered glass",
+            # Charging accessories — use compound phrases so that
+            # "5000mAh battery" in a phone title is NOT excluded
+            "replacement battery", "spare battery", "phone battery",
+            "phone charger", "wireless charger", "charging pad",
+            "charging stand", "charging dock", "power bank",
+            "wireless charging pad",
+            # Cables and adapters
+            "phone cable", "charging cable", "usb cable",
+            # Mounting / holder accessories
+            "phone holder", "phone stand", "phone mount",
+            "car holder", "car mount",
+            # Other accessories
+            "lens kit", "camera lens", "selfie stick",
+            "phone grip", "pop socket", "popsocket",
         ],
         "headphones": [
+            # Physical accessories
             "headphone stand", "headphone case",
-            "replacement ear pads", "headphone cable",
+            "headphone hanger", "headphone hook",
+            # Replacement parts
+            "replacement ear pads", "ear cushion replacement",
+            "replacement earpads", "headphone cable",
+            "replacement cable",
+            # Adapters and converters
+            "headphone adapter", "audio adapter", "jack adapter",
+            "3.5mm adapter", "6.35mm adapter",
+            # Unrelated items that match on keyword
+            "headphone book", "guide to headphones",
         ],
         "cookware set": [
-            "kitchen utensils", "spoon rest", "paper napkins",
-            "cooking apron", "pot holder", "pot lid organizer",
-            "pan organizer", "pot rack", "lid organizer",
-            "organizer rack",
+            # Standalone utensil sets — not cookware
+            "utensil set", "kitchen utensil set",
+            "wooden utensil set", "wooden spoon set",
+            "silicone utensil set", "spatula set",
+            "cooking utensil set",
+            # Individual utensils / non-cookware items
+            "kitchen utensils", "spoon rest",
+            "paper napkins", "cooking apron",
+            "pot holder", "oven mitt",
+            # Organizer items
+            "pot lid organizer", "pan organizer",
+            "pot rack", "lid organizer", "organizer rack",
         ],
         "jacket": [
             "jacket hanger", "jacket zipper replacement",
@@ -344,6 +380,11 @@ class RetrievalAgent:
         """
         Conservatively extract specifications explicitly written
         in a product title. Missing or ambiguous values stay None.
+
+        Handles both labelled forms ("8GB RAM", "128GB storage",
+        "256 GB ROM") and compact combined forms ("8GB+256GB" where
+        the smaller value is RAM and the larger is storage).
+        Labelled forms take priority over compact forms.
         """
         text = title.casefold()
 
@@ -354,7 +395,7 @@ class RetrievalAgent:
             "battery_mah": None,
         }
 
-        # RAM: e.g. "8GB RAM", "8 GB RAM", "4GB RAM".
+        # RAM: labelled form "8GB RAM" / "8 GB RAM".
         ram_matches = re.findall(
             r"\b(\d+(?:\.\d+)?)\s*gb\s*(?:of\s*)?ram\b",
             text,
@@ -365,7 +406,7 @@ class RetrievalAgent:
             if len(values) == 1:
                 specs["ram_gb"] = values.pop()
 
-        # Storage: e.g. "128GB storage", "256 GB ROM".
+        # Storage: labelled form "128GB storage" / "256 GB ROM".
         storage_matches = re.findall(
             r"\b(\d+(?:\.\d+)?)\s*"
             r"(gb|tb)\s*(?:internal\s*)?"
@@ -380,6 +421,26 @@ class RetrievalAgent:
 
         if len(storage_values) == 1:
             specs["storage_gb"] = storage_values.pop()
+
+        # Compact combined notation: "8GB+256GB" or "4GB+128GB".
+        # Convention: smaller value is RAM, larger value is storage.
+        # Only fill in fields still unknown after labelled form search.
+        if specs["ram_gb"] is None or specs["storage_gb"] is None:
+            compact_matches = re.findall(
+                r"\b(\d+(?:\.\d+)?)\s*gb\s*\+\s*(\d+(?:\.\d+)?)\s*gb\b",
+                text,
+            )
+            if len(compact_matches) == 1:
+                a = float(compact_matches[0][0])
+                b = float(compact_matches[0][1])
+                ram_candidate = min(a, b)
+                storage_candidate = max(a, b)
+                # Sanity: RAM <= 32 GB, storage >= 16 GB for consumer devices.
+                if ram_candidate <= 32 and storage_candidate >= 16:
+                    if specs["ram_gb"] is None:
+                        specs["ram_gb"] = ram_candidate
+                    if specs["storage_gb"] is None:
+                        specs["storage_gb"] = storage_candidate
 
         # Camera: e.g. "50MP camera", "12 MP rear camera".
         camera_matches = re.findall(

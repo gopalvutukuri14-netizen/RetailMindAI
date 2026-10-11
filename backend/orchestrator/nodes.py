@@ -10,6 +10,7 @@ Expensive resources are initialized lazily and reused.
 """
 
 import os
+import logging
 
 from dotenv import load_dotenv
 from google import genai
@@ -29,10 +30,13 @@ from backend.Agents.response import (
     ResponseResult,
 )
 from backend.pipeline.retrieval import ProductRetriever
+from backend.Agents.gemini_retry import call_with_retry
 
 from .state import PipelineState
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 # ================================================================
@@ -357,16 +361,24 @@ Instructions:
 5. Keep the response to 1-3 sentences.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.5,
-        ),
-    )
+    def _call():
+        return client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.5,
+            ),
+        )
+
+    try:
+        response = call_with_retry(_call, context="general_response_node")
+        summary = (response.text or "").strip() or "How can I help with your shopping today?"
+    except Exception as exc:
+        logger.warning("general_response_node: Gemini unavailable: %s", exc)
+        summary = "How can I help with your shopping today?"
 
     result = ResponseResult(
-        summary=(response.text or "").strip(),
+        summary=summary,
         recommendations=[],
         additional_information="",
         follow_up_suggestions=[
@@ -482,17 +494,46 @@ Rules:
 5. Return JSON matching the required response schema.
 """
 
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=ResponseResult,
-            temperature=0.3,
-        ),
-    )
+    def _call():
+        return client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=ResponseResult,
+                temperature=0.3,
+            ),
+        )
 
-    result = ResponseResult.model_validate_json(response.text)
+    try:
+        response = call_with_retry(_call, context="context_response_node")
+        if not response.text:
+            raise RuntimeError("context_response_node: empty Gemini response")
+        result = ResponseResult.model_validate_json(response.text)
+    except Exception as exc:
+        logger.warning(
+            "context_response_node: Gemini unavailable, using plain fallback: %s", exc
+        )
+        from backend.Agents.response.schema import ResponseProduct
+        recs = [
+            ResponseProduct(
+                asin=p.get("asin", ""),
+                title=p.get("title", "Unknown"),
+                brand=p.get("brand"),
+                price_inr=p.get("price_inr"),
+                explanation=p.get("explanation", ""),
+                key_factors=p.get("key_factors", []),
+            )
+            for p in previous
+        ]
+        return {
+            "response_result": ResponseResult(
+                summary="Here are the previously recommended products for your follow-up.",
+                recommendations=recs,
+                additional_information="",
+                follow_up_suggestions=[],
+            )
+        }
 
     # Preserve factual product identity and prices from previous results.
     previous_by_title = {

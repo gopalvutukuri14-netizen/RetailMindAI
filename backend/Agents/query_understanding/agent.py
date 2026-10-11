@@ -1,13 +1,16 @@
 
 import os
+import logging
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from .schema import QueryUnderstanding
+from backend.Agents.gemini_retry import call_with_retry
 
 
+logger = logging.getLogger(__name__)
 MODEL_NAME = "gemini-3.5-flash-lite"
 
 
@@ -250,19 +253,23 @@ USER QUERY:
 {query}
 """
 
-        response = self.client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json",
-                response_schema=QueryUnderstanding,
-            ),
-        )
+        def _call():
+            return self.client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_schema=QueryUnderstanding,
+                ),
+            )
+
+        response = call_with_retry(_call, context="QueryUnderstandingAgent")
 
         if response.parsed is None:
             raise RuntimeError(
-                "Gemini returned no parsed QueryUnderstanding."
+                "Gemini returned no parsed QueryUnderstanding. "
+                "The model response was empty or could not be deserialized."
             )
 
         return response.parsed

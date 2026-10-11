@@ -1,14 +1,18 @@
 import os
+import logging
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from .schema import ResponseResult, ResponseProduct
+from backend.Agents.gemini_retry import call_with_retry
 
 
 # Load environment variables from .env
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Gemini model used for response generation
 MODEL_NAME = "gemini-3.5-flash-lite"
@@ -78,17 +82,40 @@ class ResponseAgent:
             followup_result,
         )
 
-        response = self.client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ResponseResult,
-                temperature=0.3,
-            ),
-        )
+        def _call():
+            return self.client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ResponseResult,
+                    temperature=0.3,
+                ),
+            )
 
-        generated = ResponseResult.model_validate_json(response.text)
+        # If Gemini is unavailable, fall back to a deterministic summary
+        # built from actual ranked + XAI data already in the pipeline.
+        try:
+            response = call_with_retry(_call, context="ResponseAgent")
+            if not response.text:
+                raise RuntimeError("ResponseAgent: empty Gemini response")
+            generated = ResponseResult.model_validate_json(response.text)
+            summary = generated.summary
+            additional_information = generated.additional_information
+        except Exception as exc:
+            logger.warning(
+                "ResponseAgent: falling back to deterministic summary after error: %s",
+                exc,
+            )
+            product_type = getattr(query, "product_type", None) or "products"
+            summary = (
+                f"Here are the top {len(ranking_result.products)} "
+                f"{product_type} recommendations matching your request."
+            )
+            additional_information = ""
+
+        generated_summary = summary
+        generated_additional = additional_information
 
         # Match explanations by ASIN, not by list position.
         explanations_by_asin = {
@@ -127,9 +154,9 @@ class ResponseAgent:
             )
 
         return ResponseResult(
-            summary=generated.summary,
+            summary=generated_summary,
             recommendations=recommendations,
-            additional_information=generated.additional_information,
+            additional_information=generated_additional,
             follow_up_suggestions=[
                 suggestion.suggestion_text
                 for suggestion in followup_result.suggestions

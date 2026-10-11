@@ -1,14 +1,18 @@
 import os
+import logging
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 from .schema import XAIResult
+from backend.Agents.gemini_retry import call_with_retry
 
 
 # Load environment variables from .env
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Gemini model used for generating explanations
 MODEL_NAME = "gemini-3.5-flash-lite"
@@ -58,28 +62,43 @@ class XAIAgent:
             ranking_result
         )
 
-        # Ask Gemini to generate structured XAI output
-        response = self.client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=XAIResult,
-                temperature=0.3,
-            ),
-        )
+        def _call():
+            return self.client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=XAIResult,
+                    temperature=0.3,
+                ),
+            )
+
+        response = call_with_retry(_call, context="XAIAgent")
+
+        if not response.text:
+            raise RuntimeError(
+                "XAI Agent: Gemini returned an empty response."
+            )
 
         # Convert Gemini's JSON response into our Pydantic schema
         result = XAIResult.model_validate_json(
             response.text
         )
 
-        # Make sure Gemini returned one explanation per product
-        if len(result.explanations) != len(ranking_result.products):
-            raise ValueError(
-                "XAI explanation count does not match "
-                "ranking result count."
+        # Make sure Gemini returned one explanation per product.
+        # A count mismatch is a soft error: log a warning and truncate
+        # rather than crashing the pipeline, since missing an explanation
+        # for one product is better than losing all recommendations.
+        expected = len(ranking_result.products)
+        if len(result.explanations) != expected:
+            logger.warning(
+                "XAI Agent: expected %d explanations but got %d. "
+                "Truncating or padding with empty explanations.",
+                expected,
+                len(result.explanations),
             )
+            # Truncate if too many, leave short if too few
+            result.explanations = result.explanations[:expected]
 
         # ASIN is a database identifier.
         # We should NOT trust the LLM to reproduce it correctly.

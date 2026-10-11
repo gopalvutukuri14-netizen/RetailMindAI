@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import logging
 
-from backend.Agents.query_understanding import QueryUnderstandingAgent
 from backend.orchestrator import run_pipeline
 
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="RetailMind AI",
@@ -48,11 +50,6 @@ class RecommendRequest(BaseModel):
     )
 
 
-# ── Singleton agents ────────────────────────────────────────────
-
-query_agent = QueryUnderstandingAgent()
-
-
 # ── Endpoints ────────────────────────────────────────────────────
 
 @app.get("/")
@@ -68,8 +65,19 @@ def health():
 @app.post("/understand")
 def understand_query(request: QueryRequest):
     """Parse a user query into structured fields (debug endpoint)."""
-    result = query_agent.understand(request.query)
-    return result.model_dump()
+    # Initialize the agent lazily inside the request so that a missing
+    # GEMINI_API_KEY causes a 500 response rather than a startup crash.
+    from backend.Agents.query_understanding import QueryUnderstandingAgent
+    try:
+        agent = QueryUnderstandingAgent()
+        result = agent.understand(request.query)
+        return result.model_dump()
+    except Exception as exc:
+        logger.error("understand_query failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Query understanding failed. Please check the API key configuration.",
+        )
 
 
 @app.post("/recommend")
@@ -88,5 +96,13 @@ def recommend(request: RecommendRequest):
             previous_products=request.previous_products or None,
         )
         return result.model_dump()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.error("recommend endpoint error: %s", exc, exc_info=True)
+        # Sanitize: do not expose internal exception details to the client.
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The recommendation pipeline encountered an error. "
+                "This may be a temporary issue with the AI service."
+            ),
+        )
