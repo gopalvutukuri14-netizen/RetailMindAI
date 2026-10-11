@@ -118,25 +118,70 @@ class RankingAgent:
             return None
         return sum(scores) / len(scores)
 
-    def _memory_alignment_score(self, query, product, profile) -> Optional[float]:
+    def _memory_alignment_score(self, query, product, profile):
         if profile is None:
             return None
+
         components = []
-        if profile.excluded_brands and product.brand and product.brand in profile.excluded_brands:
+
+        product_brand = (
+            product.brand.strip().casefold()
+            if product.brand else None
+        )
+
+        excluded_brands = {
+            brand.strip().casefold()
+            for brand in (profile.excluded_brands or [])
+            if brand and brand.strip()
+        }
+
+        preferred_brands = {
+            brand.strip().casefold()
+            for brand in (profile.preferred_brands or [])
+            if brand and brand.strip()
+        }
+
+        if product_brand and product_brand in excluded_brands:
             components.append(0.0)
-        elif profile.preferred_brands:
-            components.append(1.0 if product.brand in profile.preferred_brands else 0.0)
-        if profile.typical_budget_max is not None and product.price_inr is not None:
-            within_budget = product.price_inr <= profile.typical_budget_max
+        elif preferred_brands:
+            if product_brand is not None:
+                components.append(
+                    1.0 if product_brand in preferred_brands else 0.0
+                )
+
+        if (
+            profile.typical_budget_max is not None
+            and product.price_inr is not None
+        ):
+            within_budget = (
+                product.price_inr <= profile.typical_budget_max
+            )
+
             if profile.typical_budget_min is not None:
-                within_budget = within_budget and product.price_inr >= profile.typical_budget_min
+                within_budget = (
+                    within_budget
+                    and product.price_inr >= profile.typical_budget_min
+                )
+
             components.append(1.0 if within_budget else 0.0)
+
         if profile.recurring_quality_tags and query.quality_tags:
-            recurring = set(t.lower() for t in profile.recurring_quality_tags)
-            current = set(t.lower() for t in query.quality_tags)
-            components.append(len(recurring & current) / len(recurring))
+            recurring = {
+                tag.casefold()
+                for tag in profile.recurring_quality_tags
+            }
+            current = {
+                tag.casefold()
+                for tag in query.quality_tags
+            }
+
+            components.append(
+                len(recurring & current) / len(recurring)
+            )
+            
         if not components:
             return None
+
         return sum(components) / len(components)
 
     def _build_reasons(self, query, product, profile, breakdown: ScoreBreakdown) -> list:

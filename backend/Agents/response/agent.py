@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from .schema import ResponseResult
+from .schema import ResponseResult, ResponseProduct
 
 
 # Load environment variables from .env
@@ -54,19 +54,23 @@ class ResponseAgent:
         followup_result,
     ) -> ResponseResult:
         """
-        Generate the final structured response.
-
-        Inputs:
-            query            -> Query Understanding result
-            ranking_result   -> Ranking Agent result
-            xai_result       -> XAI Agent result
-            followup_result  -> Follow-up Agent result
-
-        Output:
-            ResponseResult for the frontend.
+        Generate the final response while preserving product identity,
+        ranking order, and follow-up suggestions from upstream agents.
         """
 
-        # Build the prompt using outputs from previous agents
+        if not ranking_result.products:
+            return ResponseResult(
+                summary="No matching products were found for your request.",
+                recommendations=[],
+                additional_information=(
+                    "Try changing your product type, budget, or preferences."
+                ),
+                follow_up_suggestions=[
+                    suggestion.suggestion_text
+                    for suggestion in followup_result.suggestions
+                ],
+            )
+
         prompt = self._build_prompt(
             query,
             ranking_result,
@@ -74,7 +78,6 @@ class ResponseAgent:
             followup_result,
         )
 
-        # Ask Gemini for structured JSON output
         response = self.client.models.generate_content(
             model=MODEL_NAME,
             contents=prompt,
@@ -85,30 +88,53 @@ class ResponseAgent:
             ),
         )
 
-        # Convert Gemini JSON into our Pydantic schema
-        result = ResponseResult.model_validate_json(
-            response.text
-        )
+        generated = ResponseResult.model_validate_json(response.text)
 
-        # Product identity comes from Ranking Agent,
-        # not from the LLM.
-        for response_product, ranked_product in zip(
-            result.recommendations,
-            ranking_result.products,
-        ):
-            response_product.asin = ranked_product.asin
-            response_product.title = ranked_product.title
-            response_product.brand = ranked_product.brand
-            response_product.price_inr = ranked_product.price_inr
+        # Match explanations by ASIN, not by list position.
+        explanations_by_asin = {
+            explanation.asin: explanation
+            for explanation in xai_result.explanations
+        }
 
-        # Follow-up suggestions come from Follow-up Agent.
-        # Keep them unchanged instead of letting the LLM invent new ones.
-        result.follow_up_suggestions = [
-            suggestion.suggestion_text
-            for suggestion in followup_result.suggestions
-        ]
+        # Rebuild recommendations from the authoritative ranking output.
+        # This preserves the ranking order and prevents invented products.
+        recommendations = []
 
-        return result
+        for ranked_product in ranking_result.products:
+            explanation = explanations_by_asin.get(ranked_product.asin)
+
+            recommendations.append(
+                ResponseProduct(
+                    asin=ranked_product.asin,
+                    title=ranked_product.title,
+                    brand=ranked_product.brand,
+                    price_inr=ranked_product.price_inr,
+                    explanation=(
+                        explanation.explanation
+                        if explanation
+                        else (
+                            ranked_product.match_reasons[0]
+                            if ranked_product.match_reasons
+                            else "Recommended based on the available ranking signals."
+                        )
+                    ),
+                    key_factors=(
+                        explanation.key_factors
+                        if explanation
+                        else []
+                    ),
+                )
+            )
+
+        return ResponseResult(
+            summary=generated.summary,
+            recommendations=recommendations,
+            additional_information=generated.additional_information,
+            follow_up_suggestions=[
+                suggestion.suggestion_text
+                for suggestion in followup_result.suggestions
+            ],
+    )
 
     def _build_prompt(
         self,

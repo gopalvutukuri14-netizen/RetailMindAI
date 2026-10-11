@@ -18,6 +18,7 @@ class RetrievalAgent:
     PRODUCT_TYPE_ALIASES = {
         "phone": [
             "phone", "smartphone", "mobile phone", "cell phone",
+            "galaxy",
         ],
         "headphones": [
             "headphone", "headphones", "headset",
@@ -44,8 +45,10 @@ class RetrievalAgent:
 
     PRODUCT_TYPE_EXCLUSIONS = {
         "phone": [
-            "phone case", "phone cover", "replacement battery",
-            "screen protector", "phone holder",
+            "phone case", "phone cover", "protective cover",
+            "protective case", "screen protector", "phone holder",
+            "wireless charging pad", "charging pad",
+            "charging stand", "phone charger", "wireless charger",
         ],
         "headphones": [
             "headphone stand", "headphone case",
@@ -53,7 +56,9 @@ class RetrievalAgent:
         ],
         "cookware set": [
             "kitchen utensils", "spoon rest", "paper napkins",
-            "cooking apron", "pot holder",
+            "cooking apron", "pot holder", "pot lid organizer",
+            "pan organizer", "pot rack", "lid organizer",
+            "organizer rack",
         ],
         "jacket": [
             "jacket hanger", "jacket zipper replacement",
@@ -61,13 +66,14 @@ class RetrievalAgent:
         "office chair": [
             "chair cover", "chair mat", "chair wheels",
             "replacement caster", "chair cushion",
+            "caster wheels", "chair caster wheels",
         ],
         "running shoes": [
             "running socks", "compression socks",
             "running gloves", "running top", "running shirt",
             "running shorts", "running jacket", "shoe laces",
             "shoelaces", "shoe insoles", "shoe cleaner",
-            "replacement spikes",
+            "replacement spikes", "long sleeve top",
         ],
     }
 
@@ -135,16 +141,14 @@ class RetrievalAgent:
         ]
 
         if query.product_type:
-            matching_candidates = [
+            # Keep only candidates with positive product-type evidence.
+            # Explicitly excluded products have scores below zero.
+            scored_candidates = [
                 (item, score)
                 for item, score in scored_candidates
-                if score >= 1
+                if score > 0
             ]
-
-            # Use strict title/document matching when enough candidates exist.
-            if len(matching_candidates) >= top_k:
-                scored_candidates = matching_candidates
-
+            
         # Product-type score is the primary signal;
         # semantic distance breaks ties between equally matched products.
         scored_candidates.sort(
