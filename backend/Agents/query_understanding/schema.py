@@ -36,6 +36,8 @@ class QueryUnderstanding(BaseModel):
     intent: Intent
 
     category: Optional[RetailCategory] = None
+    
+    product_type: Optional[str] = None
 
     budget_min: Optional[float] = None
     budget_max: Optional[float] = None
