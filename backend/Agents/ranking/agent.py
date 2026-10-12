@@ -36,6 +36,18 @@ class RankingAgent:
         memory_applied = self._profile_has_signal(profile)
         ranked = []
         for product in retrieval_result.products:
+            # Exclude products that explicitly fail requested specifications
+            if any(
+                check is False
+                for check in [
+                    product.meets_ram,
+                    product.meets_storage,
+                    product.meets_camera,
+                    product.meets_battery,
+                ]
+            ):
+                continue
+
             breakdown = self._score_product(query, product, profile if memory_applied else None)
             reasons = self._build_reasons(query, product, profile if memory_applied else None, breakdown)
             ranked.append(

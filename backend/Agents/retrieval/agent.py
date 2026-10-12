@@ -56,6 +56,7 @@ class RetrievalAgent:
             # Charging accessories — use compound phrases so that
             # "5000mAh battery" in a phone title is NOT excluded
             "replacement battery", "spare battery", "phone battery",
+            "standard battery", "oem standard battery",
             "phone charger", "wireless charger", "charging pad",
             "charging stand", "charging dock", "power bank",
             "wireless charging pad",
@@ -63,24 +64,28 @@ class RetrievalAgent:
             "phone cable", "charging cable", "usb cable",
             # Mounting / holder accessories
             "phone holder", "phone stand", "phone mount",
-            "car holder", "car mount",
+            "car holder", "car mount", "armband", "phone arm band",
             # Other accessories
             "lens kit", "camera lens", "selfie stick",
             "phone grip", "pop socket", "popsocket",
+            "stylus pen", "replacement s pen", "s pen",
+            "video rig", "phone pouch",
         ],
         "headphones": [
             # Physical accessories
             "headphone stand", "headphone case",
-            "headphone hanger", "headphone hook",
+            "headphone hanger", "headphone hook", "headphone holder",
             # Replacement parts
             "replacement ear pads", "ear cushion replacement",
             "replacement earpads", "headphone cable",
-            "replacement cable",
+            "replacement cable", "audio cable", "aux cable",
             # Adapters and converters
             "headphone adapter", "audio adapter", "jack adapter",
             "3.5mm adapter", "6.35mm adapter",
-            # Unrelated items that match on keyword
+            # Media, books, pictorials, and guides
             "headphone book", "guide to headphones",
+            "pictorial", "isbn", "artbook", "photobook",
+            "paperback", "hardcover", "magazine", "novel",
         ],
         "cookware set": [
             # Standalone utensil sets — not cookware
@@ -89,9 +94,12 @@ class RetrievalAgent:
             "silicone utensil set", "spatula set",
             "cooking utensil set",
             # Individual utensils / non-cookware items
-            "kitchen utensils", "spoon rest",
-            "paper napkins", "cooking apron",
+            "wooden spoons", "wooden spoon", "wooden utensils",
+            "cooking utensils", "cooking utensil", "kitchen utensil",
+            "kitchen utensils", "silicone utensils",
+            "spoon rest", "paper napkins", "cooking apron",
             "pot holder", "oven mitt",
+            "spatula", "slotted spoon", "ladle", "tongs", "whisk",
             # Organizer items
             "pot lid organizer", "pan organizer",
             "pot rack", "lid organizer", "organizer rack",
@@ -105,11 +113,19 @@ class RetrievalAgent:
             "caster wheels", "chair caster wheels",
         ],
         "running shoes": [
+            # Clothing / socks / apparel accessories
             "running socks", "compression socks",
             "running gloves", "running top", "running shirt",
             "running shorts", "running jacket", "shoe laces",
             "shoelaces", "shoe insoles", "shoe cleaner",
             "replacement spikes", "long sleeve top",
+            # Non-running sports / combat footwear
+            "sparring shoes", "sparring shoe", "sparring",
+            "boxing shoes", "wrestling shoes",
+            "martial arts shoes", "cycling shoes",
+            "bowling shoes", "golf shoes", "dance shoes",
+            "climbing shoes", "water shoes", "skate shoes",
+            "cleats", "soccer cleats", "football cleats", "baseball cleats",
         ],
     }
 
@@ -170,7 +186,10 @@ class RetrievalAgent:
             (
                 item,
                 self._product_type_score(
-                    item, query.product_type
+                    item,
+                    query.product_type,
+                    quality_tags=query.quality_tags,
+                    raw_query=query.raw_query,
                 ),
             )
             for item in candidates
@@ -194,14 +213,24 @@ class RetrievalAgent:
             )
         )
 
-        selected = [
-            item for item, score in scored_candidates[:top_k]
-        ]
-
-        products = [
-            self._to_retrieved_product(item, query)
-            for item in selected
-        ]
+        # Convert candidates and filter out explicit spec failures
+        valid_products = []
+        for item, score in scored_candidates:
+            product = self._to_retrieved_product(item, query)
+            # If any requested spec explicitly fails (is False), exclude it
+            if any(
+                check is False
+                for check in [
+                    product.meets_ram,
+                    product.meets_storage,
+                    product.meets_camera,
+                    product.meets_battery,
+                ]
+            ):
+                continue
+            valid_products.append(product)
+            if len(valid_products) >= top_k:
+                break
 
         return RetrievalResult(
             query_text_used=semantic_text,
@@ -209,8 +238,8 @@ class RetrievalAgent:
             hard_constraints_not_enforced=list(
                 query.hard_constraints
             ),
-            total_candidates_returned=len(products),
-            products=products,
+            total_candidates_returned=len(valid_products),
+            products=valid_products,
         )
 
     def _get_product_type_terms(
@@ -325,6 +354,8 @@ class RetrievalAgent:
         self,
         item: dict,
         product_type: Optional[str],
+        quality_tags: Optional[list[str]] = None,
+        raw_query: Optional[str] = None,
     ) -> int:
         if not product_type:
             return 0
@@ -351,6 +382,16 @@ class RetrievalAgent:
             for term in exclusions
         ):
             return -2
+
+        # If user explicitly requested wireless, exclude wired-only audio items
+        query_text = (raw_query or "").casefold()
+        tags_text = " ".join(str(t) for t in (quality_tags or [])).casefold()
+        if "wireless" in query_text or "wireless" in tags_text:
+            if normalized in ("headphones", "headphone", "earphones", "earbuds", "headset"):
+                if self._contains_phrase(title, "wired") and not (
+                    self._contains_phrase(title, "wireless") or self._contains_phrase(title, "bluetooth")
+                ):
+                    return -2
 
         # Strongest match: the title starts with a product-type alias.
         if any(

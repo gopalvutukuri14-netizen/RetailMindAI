@@ -137,7 +137,8 @@ def run_pipeline(
     user_id: str = "anonymous",
     top_k: int = 5,
     previous_products: list[dict] | None = None,
-) -> ResponseResult:
+    return_state: bool = False,
+) -> ResponseResult | tuple[ResponseResult, PipelineState]:
     """
     Run the full RetailMind AI pipeline end-to-end.
 
@@ -148,10 +149,11 @@ def run_pipeline(
         top_k:              Number of products to retrieve and rank.
         previous_products:  Products from the last recommendation (if any),
                             used for follow-up/comparison queries.
+        return_state:       If True, returns a tuple of (ResponseResult, PipelineState).
 
     Returns:
         A ``ResponseResult`` ready to be serialized and sent to the
-        frontend.
+        frontend (or tuple of (ResponseResult, PipelineState) if return_state=True).
     """
 
     initial_state: PipelineState = {
@@ -175,6 +177,9 @@ def run_pipeline(
             "Pipeline completed without producing a response_result. "
             "Check the graph wiring and node return keys."
         )
+
+    if return_state:
+        return response_result, final_state
 
     return response_result
 
