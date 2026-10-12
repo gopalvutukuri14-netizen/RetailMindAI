@@ -33,7 +33,7 @@ def test_root_endpoint(client):
     """GET / returns status 200 and startup message."""
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "RetailMind AI backend is running"}
+    assert response.json() == {"message": "SmartPick backend is running"}
 
 
 def test_health_endpoint(client):
@@ -172,3 +172,95 @@ def test_understand_endpoint_failure_sanitization(client):
         data = response.json()
         assert "secret" not in data["detail"]
         assert "Query understanding failed" in data["detail"]
+
+
+def test_understand_validation_missing_query(client):
+    """POST /understand without required 'query' field returns 422."""
+    response = client.post(
+        "/understand",
+        json={},
+    )
+    assert response.status_code == 422
+
+
+def test_recommend_preserves_missing_price_as_null(client):
+    """POST /recommend serializes missing price as JSON null and never invents a price."""
+    sample_result = ResponseResult(
+        summary="Found 1 item with unlisted price.",
+        recommendations=[
+            ResponseProduct(
+                asin="B00MISSING",
+                title="Rare Vintage Item",
+                brand=None,
+                price_inr=None,
+                explanation="Recommended despite missing price.",
+                key_factors=["Vintage"],
+            )
+        ],
+        follow_up_suggestions=[],
+        additional_information="",
+    )
+
+    with patch("backend.main.run_pipeline") as mock_pipeline:
+        mock_pipeline.return_value = sample_result
+
+        response = client.post(
+            "/recommend",
+            json={"query": "rare vintage item", "top_k": 3},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["recommendations"][0]["price_inr"] is None
+        assert data["recommendations"][0]["brand"] is None
+        # Verify JSON text explicitly contains null for missing price and brand
+        assert '"price_inr":null' in response.text
+        assert '"brand":null' in response.text
+
+
+def test_recommend_forwards_user_id_and_previous_products(client):
+    """POST /recommend forwards user_id and previous_products context to run_pipeline."""
+    sample_result = ResponseResult(
+        summary="Comparison completed.",
+        recommendations=[],
+        follow_up_suggestions=[],
+        additional_information="",
+    )
+
+    prev_prods = [{"asin": "B01", "title": "Phone A", "price_inr": 20000.0}]
+
+    with patch("backend.main.run_pipeline") as mock_pipeline:
+        mock_pipeline.return_value = sample_result
+
+        response = client.post(
+            "/recommend",
+            json={
+                "query": "compare with previous",
+                "user_id": "budget_conscious",
+                "top_k": 3,
+                "previous_products": prev_prods,
+            },
+        )
+
+        assert response.status_code == 200
+        mock_pipeline.assert_called_once_with(
+            raw_query="compare with previous",
+            user_id="budget_conscious",
+            top_k=3,
+            previous_products=prev_prods,
+        )
+
+
+def test_cors_preflight_allows_vite_frontend(client):
+    """OPTIONS preflight from Vite frontend origin receives CORS allow headers."""
+    response = client.options(
+        "/recommend",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+

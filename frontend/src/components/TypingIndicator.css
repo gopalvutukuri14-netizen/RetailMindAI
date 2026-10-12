@@ -1,44 +1,50 @@
-/* ── Typing Indicator ──────────────────────────────────────── */
+/* ── Typing / Searching Indicator ──────────────────────────── */
 .typing-indicator {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 16px 20px;
-  animation: slideUp 300ms ease-out both;
+  animation: slideUp 200ms ease-out both;
 }
 
 .typing-indicator__avatar {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  background: var(--accent-gradient);
+  border-radius: var(--radius-md);
+  background: var(--brand-gradient);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-family: var(--font-heading);
+  font-size: 15px;
   font-weight: 700;
-  color: var(--bg-primary);
+  color: #ffffff;
   flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(15, 118, 110, 0.25);
+}
+
+.typing-indicator__card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
 .typing-indicator__dots {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 12px 18px;
-  background: var(--bot-bubble-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--bot-bubble-border);
-  border-radius: 18px 18px 18px 4px;
 }
 
 .typing-indicator__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--accent-primary);
-  animation: pulse 1.4s infinite ease-in-out;
+  background: var(--brand-accent);
+  animation: pulse 1.2s infinite ease-in-out;
 }
 
 .typing-indicator__dot:nth-child(2) {
@@ -50,8 +56,7 @@
 }
 
 .typing-indicator__label {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-left: 4px;
-  font-style: italic;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
 }

@@ -4,29 +4,29 @@ import "./ProfileSelector.css";
 const PROFILES = [
   {
     id: "anonymous",
-    label: "Anonymous",
-    desc: "No personalization",
+    label: "Standard Search",
+    desc: "No personalization profile",
     avatarClass: "profile-selector__avatar--anonymous",
-    initials: "?",
+    initials: "✦",
   },
   {
     id: "budget_conscious",
     label: "Budget Conscious",
-    desc: "Prefers phones under \u20B910,000",
+    desc: "Prefers items under ₹10,000",
     avatarClass: "profile-selector__avatar--budget",
     initials: "B",
   },
   {
     id: "camera_focused",
-    label: "Camera Focused",
-    desc: "Prioritizes good camera",
+    label: "Quality & Optics",
+    desc: "Prioritizes camera & build quality",
     avatarClass: "profile-selector__avatar--camera",
-    initials: "C",
+    initials: "Q",
   },
   {
     id: "samsung_loyalist",
-    label: "Samsung Loyalist",
-    desc: "Prefers Samsung brand",
+    label: "Brand Loyalist",
+    desc: "Prefers Samsung brand items",
     avatarClass: "profile-selector__avatar--samsung",
     initials: "S",
   },
@@ -54,23 +54,32 @@ export default function ProfileSelector({ activeProfileId, onProfileChange }) {
       <button
         className="profile-selector__trigger"
         onClick={() => setIsOpen(!isOpen)}
+        aria-haspopup="true"
+        aria-expanded={isOpen}
+        title="Personalization Profile"
       >
         <span className={`profile-selector__avatar ${active.avatarClass}`}>
           {active.initials}
         </span>
-        {active.label}
+        <span className="profile-selector__label">{active.label}</span>
         <span
-          className={`profile-selector__chevron ${isOpen ? "profile-selector__chevron--open" : ""}`}
+          className={`profile-selector__chevron ${
+            isOpen ? "profile-selector__chevron--open" : ""
+          }`}
         >
-          &#9662;
+          ▾
         </span>
       </button>
 
       {isOpen && (
-        <div className="profile-selector__dropdown">
+        <div className="profile-selector__dropdown" role="menu">
+          <div className="profile-selector__dropdown-header">
+            Shopping Persona
+          </div>
           {PROFILES.map((profile) => (
             <button
               key={profile.id}
+              role="menuitem"
               className={`profile-selector__option ${
                 profile.id === activeProfileId
                   ? "profile-selector__option--active"
@@ -86,8 +95,8 @@ export default function ProfileSelector({ activeProfileId, onProfileChange }) {
               >
                 {profile.initials}
               </span>
-              <span>
-                {profile.label}
+              <span className="profile-selector__option-content">
+                <span className="profile-selector__option-title">{profile.label}</span>
                 <span className="profile-selector__option-desc">
                   {profile.desc}
                 </span>

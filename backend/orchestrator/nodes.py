@@ -521,6 +521,7 @@ Rules:
                 title=p.get("title", "Unknown"),
                 brand=p.get("brand"),
                 price_inr=p.get("price_inr"),
+                image_url=p.get("image_url"),
                 explanation=p.get("explanation", ""),
                 key_factors=p.get("key_factors", []),
             )
@@ -535,7 +536,7 @@ Rules:
             )
         }
 
-    # Preserve factual product identity and prices from previous results.
+    # Preserve factual product identity, prices, and image URLs from previous results.
     previous_by_title = {
         product.get("title", "").casefold().strip(): product
         for product in previous
@@ -556,5 +557,7 @@ Rules:
             recommendation.price_inr = match.get(
                 "price_inr", recommendation.price_inr
             )
+            if "image_url" in match:
+                recommendation.image_url = match.get("image_url")
 
     return {"response_result": result}

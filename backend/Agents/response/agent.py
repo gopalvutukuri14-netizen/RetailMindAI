@@ -7,6 +7,7 @@ from google.genai import types
 
 from .schema import ResponseResult, ResponseProduct
 from backend.Agents.gemini_retry import call_with_retry
+from backend.pipeline.product_images import get_product_images
 
 
 # Load environment variables from .env
@@ -127,6 +128,9 @@ class ResponseAgent:
         # This preserves the ranking order and prevents invented products.
         recommendations = []
 
+        asins = [ranked_product.asin for ranked_product in ranking_result.products]
+        image_urls = get_product_images(asins)
+
         for ranked_product in ranking_result.products:
             explanation = explanations_by_asin.get(ranked_product.asin)
 
@@ -136,6 +140,7 @@ class ResponseAgent:
                     title=ranked_product.title,
                     brand=ranked_product.brand,
                     price_inr=ranked_product.price_inr,
+                    image_url=image_urls.get(ranked_product.asin),
                     explanation=(
                         explanation.explanation
                         if explanation

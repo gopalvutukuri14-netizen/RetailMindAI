@@ -1,23 +1,30 @@
 import { useState, useCallback, useRef } from "react";
 import ProfileSelector from "./components/ProfileSelector";
+import CategoryBar, { CATEGORIES } from "./components/CategoryBar";
 import ChatWindow from "./components/ChatWindow";
 import ChatInput from "./components/ChatInput";
 import { getRecommendations } from "./api/recommend";
 import "./App.css";
 
+const MULTI_CATEGORY_QUERIES = [
+  { category: "Phones", query: "Samsung phone under ₹30000 with 8GB RAM" },
+  { category: "Electronics", query: "Wireless Bluetooth headphones for gaming" },
+  { category: "Home & Kitchen", query: "Non-stick cookware set for a family" },
+  { category: "Clothing", query: "Durable winter jacket" },
+  { category: "Office", query: "Comfortable ergonomic office chair" },
+  { category: "Sports", query: "Running shoes for daily jogging" },
+  { category: "Demo", query: "Test product images & fallbacks" },
+];
+
 const WELCOME_MESSAGE = {
   role: "bot",
   type: "welcome",
-  text: "Welcome to RetailMind AI! I can help you find the perfect smartphone. Tell me what you're looking for \u2014 your budget, preferred brand, must-have features \u2014 and I'll find the best matches with real customer sentiment analysis.",
-  exampleQueries: [
-    "Best Samsung phone under 15000 with good camera",
-    "Compare budget phones under 10000 with long battery",
-    "Premium phone with great display and performance",
-  ],
+  exampleQueries: MULTI_CATEGORY_QUERIES,
 };
 
 export default function App() {
   const [profileId, setProfileId] = useState("anonymous");
+  const [activeCategory, setActiveCategory] = useState("all");
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -25,12 +32,89 @@ export default function App() {
   // like "Compare top 2" can reference them instead of doing a fresh search.
   const lastProductsRef = useRef([]);
 
+  const handleNewSearch = useCallback(() => {
+    setMessages([WELCOME_MESSAGE]);
+    lastProductsRef.current = [];
+    setActiveCategory("all");
+  }, []);
+
   const sendQuery = useCallback(
     async (query) => {
       // Add user message
       const userMsg = { role: "user", text: query };
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
+
+      // Check if user clicked a specific category or typed fresh
+      const matchingCategory = CATEGORIES.find(
+        (c) => c.sampleQuery && c.sampleQuery.toLowerCase() === query.toLowerCase().trim()
+      );
+      if (matchingCategory) {
+        setActiveCategory(matchingCategory.id);
+      } else {
+        // Fresh natural-language query: avoid stale category lock
+        setActiveCategory("all");
+      }
+
+      // Diagnostic scenario test: renders valid image, missing image, and broken image fallback
+      const normalizedQuery = query.toLowerCase().trim();
+      if (
+        normalizedQuery === "test images" ||
+        normalizedQuery === "demo images" ||
+        normalizedQuery === "test product images & fallbacks"
+      ) {
+        setTimeout(() => {
+          const diagnosticData = {
+            summary:
+              "Image Verification Suite: Demonstrating recommendation cards with (1) authentic Amazon image URL, (2) missing image URL (null), and (3) invalid/broken image URL triggering automatic onError fallback.",
+            recommendations: [
+              {
+                asin: "B07RPHM14M",
+                title: "Galaxy S10 5G Enabled 6.7in SM-G977UZAVZW 8GB+256GB (Valid Image)",
+                brand: "SAMSUNG",
+                price_inr: 28687.12,
+                image_url: "https://m.media-amazon.com/images/I/41lVosxv3pL._AC_.jpg",
+                explanation:
+                  "Rendered with authentic Amazon image URL sourced from dataset metadata 'images' field.",
+                key_factors: ["Valid Image URL", "Proper Sizing", "High Quality"],
+              },
+              {
+                asin: "B00MISSING",
+                title: "Rare Vintage Audio Component (Missing Image - null)",
+                brand: "VintageAudio",
+                price_inr: 12500.0,
+                image_url: null,
+                explanation:
+                  "Product without image in metadata (null). Renders elegant SVG fallback placeholder.",
+                key_factors: ["Missing Image", "Clean Fallback", "Responsive"],
+              },
+              {
+                asin: "B00BROKEN",
+                title: "Rugged Tactical Protective Case (Broken 404 Image URL)",
+                brand: "ArmorShield",
+                price_inr: 1499.0,
+                image_url: "https://invalid-domain-nonexistent.example.com/broken_photo.jpg",
+                explanation:
+                  "Product with broken image URL. img onError event triggers instant fallback placeholder.",
+                key_factors: ["Invalid URL", "onError Fallback", "Zero Layout Shift"],
+              },
+            ],
+            additional_information:
+              "All three product image states verified: authentic image, missing image (null), and broken image URL fallback.",
+            follow_up_suggestions: [
+              "Wireless Bluetooth headphones for gaming",
+              "Comfortable ergonomic office chair",
+              "Compare the top 2 options",
+            ],
+          };
+
+          const botMsg = { role: "bot", type: "recommendation", data: diagnosticData };
+          setMessages((prev) => [...prev, botMsg]);
+          lastProductsRef.current = diagnosticData.recommendations;
+          setIsLoading(false);
+        }, 300);
+        return;
+      }
 
       try {
         const data = await getRecommendations(
@@ -53,7 +137,7 @@ export default function App() {
         const errorMsg = {
           role: "bot",
           type: "error",
-          text: `Something went wrong: ${err.message}. Please make sure the backend server is running on port 8000.`,
+          text: `Something went wrong: ${err.message}. Please check that the SmartPick backend server is running on port 8000.`,
         };
         setMessages((prev) => [...prev, errorMsg]);
       } finally {
@@ -73,31 +157,81 @@ export default function App() {
   );
 
   return (
-    <div className="app-shell">
-      {/* ── Top Bar ─────────────────────────────────────── */}
-      <header className="top-bar">
-        <div className="top-bar__brand">
-          <div className="top-bar__logo">R</div>
-          <div>
-            <div className="top-bar__title">RetailMind AI</div>
-            <div className="top-bar__subtitle">Smart Product Recommendations</div>
+    <div className="app-layout">
+      {/* ── Stable Header Area (Top Bar + Category Discovery) ── */}
+      <header className="app-header-area" role="banner">
+        <div className="app-header-inner">
+          <div className="top-bar">
+            <a
+              href="/"
+              className="top-bar__brand"
+              onClick={(e) => {
+                e.preventDefault();
+                handleNewSearch();
+              }}
+            >
+              <div className="top-bar__logo" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <path d="M16 10a4 4 0 0 1-8 0" />
+                </svg>
+              </div>
+              <div className="top-bar__text">
+                <div className="top-bar__title">
+                  Smart<span className="top-bar__title-accent">Pick</span>
+                </div>
+                <div className="top-bar__subtitle">Find the right product for you.</div>
+              </div>
+            </a>
+
+            <div className="top-bar__actions">
+              {messages.length > 1 && (
+                <button
+                  type="button"
+                  className="top-bar__new-search-btn"
+                  onClick={handleNewSearch}
+                  title="Start a new search"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 4v16m-8-8h16" />
+                  </svg>
+                  <span>New Search</span>
+                </button>
+              )}
+
+              <ProfileSelector
+                activeProfileId={profileId}
+                onProfileChange={setProfileId}
+              />
+            </div>
           </div>
+
+          <CategoryBar
+            activeCategory={activeCategory}
+            onSelectCategory={setActiveCategory}
+            onTriggerQuery={sendQuery}
+          />
         </div>
-        <ProfileSelector
-          activeProfileId={profileId}
-          onProfileChange={setProfileId}
-        />
       </header>
 
-      {/* ── Chat Area ───────────────────────────────────── */}
-      <ChatWindow
-        messages={messages}
-        isLoading={isLoading}
-        onFollowUp={handleFollowUp}
-      />
+      {/* ── Main Conversation Region (Page-right scrollbar) ── */}
+      <main className="app-main-scroller" role="main">
+        <div className="app-conversation-content">
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            onFollowUp={handleFollowUp}
+          />
+        </div>
+      </main>
 
-      {/* ── Input Bar ───────────────────────────────────── */}
-      <ChatInput onSend={sendQuery} disabled={isLoading} />
+      {/* ── Sticky Bottom Search Composer ── */}
+      <div className="app-composer-area">
+        <div className="app-composer-inner">
+          <ChatInput onSend={sendQuery} disabled={isLoading} />
+        </div>
+      </div>
     </div>
   );
 }

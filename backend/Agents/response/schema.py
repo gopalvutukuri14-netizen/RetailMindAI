@@ -16,6 +16,10 @@ class ResponseProduct(BaseModel):
         default=None,
         description="Product price in INR"
     )
+    image_url: str | None = Field(
+        default=None,
+        description="Product image URL from dataset metadata if available"
+    )
     explanation: str = Field(
         description="Short explanation of why this product was recommended"
     )

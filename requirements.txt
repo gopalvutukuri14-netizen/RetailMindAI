@@ -2,21 +2,26 @@
 fastapi
 uvicorn
 
-# --- Data validation / schemas (used across every agent) ---
+# --- Data validation & environment ---
 pydantic
 python-dotenv
 
 # --- LLM (Query Understanding, XAI, Follow-up, Response agents) ---
 google-genai
 
-# --- Orchestration ---
+# --- Multi-agent orchestration ---
 langgraph
 
-# --- Retrieval / vector search ---
+# --- Retrieval & vector search ---
 chromadb
 FlagEmbedding
 
-# --- Data pipeline ---
+# --- Data processing & Parquet catalog storage ---
 pandas
 numpy
 nltk
+pyarrow
+
+# --- Testing & HTTP client ---
+pytest
+httpx

@@ -1,342 +1,356 @@
-# RetailMind AI
+# SmartPick
 
-**AI-powered retail product recommendation system** built with a multi-agent architecture, semantic search, and real customer sentiment analysis.
+> **Find the right product for you.**
 
-RetailMind AI takes a natural-language shopping query (e.g. *"Best Samsung phone under 15000 with good camera"*), runs it through a pipeline of 7 specialized AI agents orchestrated by LangGraph, and returns ranked product recommendations with transparent explanations grounded in real Amazon review data.
+SmartPick is an AI-powered retail recommendation assistant built with a multi-agent architecture, semantic vector search, authentic Amazon product image retrieval, and customer sentiment analysis.
 
-The system supports **conversational context** — follow-up queries like *"Compare the top 2"* reference previous results, and non-product queries like *"hello"* or *"bye"* are handled conversationally without triggering the product pipeline.
+SmartPick takes natural-language shopping queries across **six major product categories** (e.g. *"Samsung phone under ₹30000 with 8GB RAM"*, *"Wireless Bluetooth headphones for gaming"*, *"Comfortable ergonomic office chair"*), orchestrates seven specialized AI agents via LangGraph, and delivers ranked recommendations with transparent explanations grounded in real customer reviews.
+
+The system supports **conversational multi-turn context** — follow-up queries like *"Compare the top 2 options"* reference previously shown products, and non-product inquiries like greetings are handled conversationally without triggering the retrieval pipeline.
 
 ---
 
-## Architecture
+## Supported Product Categories
+
+SmartPick supports six primary retail categories backed by ChromaDB semantic embeddings and Amazon catalog metadata:
+
+1. **Cell Phones & Accessories**
+2. **Electronics**
+3. **Home & Kitchen**
+4. **Clothing, Shoes & Jewelry**
+5. **Office Products**
+6. **Sports & Outdoors**
+
+---
+
+## System Architecture
 
 ```
-User Query + Profile + Previous Products (context)
-        |
-        v
- +-----------------------+
- | Query Understanding   |   Parses intent, budget, brand, specs, quality tags
- +-----------------------+
-        |
-        v
- +------------- Router ---------------+   Intent & category conditional routing
- |          |             |           |
- | product  | follow-up   | general   | out of
- | _recom   | /compare    | _question | scope
- |          |             |           |
- v          v             v           v
-Full      Context       General     Out of
-Pipeline  Response      Response    Scope
- |
- +----+----+
- |         |
- v         v
+User Query + Persona + Context (Previous Products)
+                     |
+                     v
+       +----------------------------+
+       |   Query Understanding      |   Extracts category, intent, budget,
+       +----------------------------+   brand, specs & quality aspects
+                     |
+                     v
+       +---------- Router ----------+   Intent & category conditional routing
+       |             |              |           |
+       | product     | follow-up    | general   | out of
+       | _recom      | /compare     | _question | scope
+       |             |              |           |
+       v             v              v           v
+  Full Pipeline    Context       General     Out of Scope
+       |           Response      Response    Redirect
+  +----+----+
+  |         |
+  v         v
 +----------+ +--------+
-| Retrieval| | Memory |     Parallel: semantic search + user preference lookup
+| Retrieval| | Memory |     Parallel: BGE-M3 semantic search + SQLite profile lookup
 +----------+ +--------+
- |         |
- +----+----+
-      |
-      v
- +---------+
- | Ranking |               Scores by similarity, spec match, sentiment,
- +---------+               aspect alignment, memory alignment
-      |
- +----+----+
- |         |
- v         v
+  |         |
+  +----+----+
+       |
+       v
+  +---------+
+  | Ranking |               5-signal weighted multi-objective scoring
+  +---------+
+       |
+  +----+----+
+  |         |
+  v         v
 +-----+  +----------+
-| XAI |  | Follow-up|      Parallel: explanations + next-step suggestions
+| XAI |  | Follow-up|      Parallel: human-readable explanations + next steps
 +-----+  +----------+
- |         |
- +----+----+
-      |
-      v
- +-----------+
- | Response  |              Synthesizes final user-facing response
- +-----------+
-      |
-      v
- JSON Response
+  |         |
+  +----+----+
+       |
+       v
+  +-----------+
+  | Response  |              Synthesizes overview, resolves authentic image URLs,
+  +-----------+              and formats null-safe INR pricing
+       |
+       v
+  JSON Response / Frontend Recommendation Cards
 ```
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| **LLM** | Google Gemini (gemini-3.5-flash-lite) |
-| **Orchestration** | LangGraph (StateGraph) |
-| **Embeddings** | BGE-M3 (BAAI/bge-m3) |
-| **Vector Store** | ChromaDB |
-| **Sentiment** | VADER + aspect-level precomputed scores |
-| **User Memory** | SQLite |
-| **Backend** | FastAPI |
-| **Frontend** | React + Vite |
-| **Language** | Python 3.10 / JavaScript |
+|---|---|
+| **LLM** | Google Gemini (`gemini-3.5-flash-lite`) with automated exponential backoff |
+| **Agent Orchestration** | LangGraph (`StateGraph`) |
+| **Dense Embeddings** | BAAI/bge-m3 (`FlagEmbedding`) |
+| **Vector Store** | ChromaDB (`retail_products` collection) |
+| **Catalog & Images** | Master Parquet catalog (`data/products_master.parquet`) + cached lookup |
+| **Sentiment Analysis** | VADER + aspect-level customer sentiment extraction |
+| **User Memory** | SQLite (`data/memory.db`) |
+| **Backend** | FastAPI + Uvicorn + Pydantic v2 |
+| **Frontend** | React 19 + Vite + Plus Jakarta Sans typography |
+| **Styling** | Custom warm editorial CSS design system (ChatGPT-style scrolling layout) |
+
+---
+
+## The Seven Agents
+
+| Agent | Purpose | Primary Inputs | Key Outputs |
+|---|---|---|---|
+| **1. Query Understanding** | Identifies query category, intent, budget constraints, specs, and aspects | Raw query string | Structured `QueryUnderstandingResult` |
+| **2. Retrieval** | Executes semantic similarity search with category and metadata filtering | Query embeddings + filters | Candidate products with specs & review sentiments |
+| **3. Memory** | Retrieves user persona preferences | User profile ID | Stored brand affinities, budget bounds, quality tags |
+| **4. Ranking** | Multi-signal scoring combining 5 objective weights | Candidate products + profile | Ranked product list with granular subscores |
+| **5. XAI (Explainable AI)** | Produces transparent "Why it matches" reasoning | Ranked products + query | Per-product explanations & key decision factors |
+| **6. Follow-up** | Anticipates relevant subsequent user questions | Query context + recommendations | Contextual follow-up suggestions |
+| **7. Response** | Formats final user-facing response with authentic images | Upstream agent outputs | Overview summary, cards, comparisons & next steps |
+
+### Intent-Based Routing
+
+* **Product Recommendation (`product_recommendation`)**: Runs the full 7-agent pipeline.
+* **Follow-up / Comparison (`follow_up`, `comparison`)**: Routes directly to `Context Response` to compare or refine the previously recommended products without re-running retrieval.
+* **General Question (`general_question`)**: Returns a conversational greeting or general shopping guidance.
+* **Out of Scope (`out_of_scope`)**: Explains domain boundaries and redirects the user to supported categories.
+
+### Ranking Signal Weights
+
+| Signal | Weight | Description |
+|---|---|---|
+| **Semantic Similarity** | `0.30` | BGE-M3 dense vector cosine similarity |
+| **Aspect Alignment** | `0.25` | Matches requested quality aspects to review sentiment |
+| **Spec Match** | `0.20` | Verifies hardware/feature constraints (RAM, storage, materials, size) |
+| **Sentiment Score** | `0.15` | Overall aggregated positive review sentiment |
+| **Memory Alignment** | `0.10` | Preference alignment with user persona |
+
+---
 
 ## Project Structure
 
 ```
 RetailMindAI/
 ├── backend/
-│   ├── main.py                          # FastAPI app with /recommend endpoint
-│   ├── orchestrator/                    # LangGraph pipeline
-│   │   ├── state.py                     # Shared pipeline state (TypedDict)
-│   │   ├── nodes.py                     # Agent wrapper functions
-│   │   └── graph.py                     # StateGraph wiring + run_pipeline()
-│   ├── Agents/
-│   │   ├── query_understanding/         # Parses user query → structured fields
-│   │   ├── retrieval/                   # Semantic search over ChromaDB
-│   │   ├── memory/                      # User preference profiles (SQLite)
-│   │   ├── ranking/                     # Multi-signal scoring & ranking
-│   │   ├── xai/                         # Explainable AI — why each product ranked
-│   │   ├── follow_up/                   # Suggests next questions/actions
-│   │   └── response/                    # Final response synthesis
+│   ├── main.py                          # FastAPI application & REST endpoints
+│   ├── orchestrator/                    # LangGraph orchestration state machine
+│   │   ├── graph.py                     # StateGraph compilation & run_pipeline()
+│   │   ├── nodes.py                     # Agent wrappers & routing logic
+│   │   └── state.py                     # Shared pipeline state schema
+│   ├── Agents/                          # Seven specialized AI agents
+│   │   ├── query_understanding/         # Category & constraint extraction
+│   │   ├── retrieval/                   # ChromaDB semantic search
+│   │   ├── memory/                      # SQLite persona management
+│   │   ├── ranking/                     # Multi-signal scoring
+│   │   ├── xai/                         # Explainable recommendation reasoning
+│   │   ├── follow_up/                   # Contextual follow-up actions
+│   │   ├── response/                    # Final response synthesis & image binding
+│   │   └── gemini_retry.py              # Robust API retry handler
 │   └── pipeline/
-│       ├── retrieval.py                 # ProductRetriever (BGE-M3 + ChromaDB)
-│       ├── clean_products.py            # Data cleaning
-│       ├── sentiment_analysis.py        # Review sentiment scoring
-│       ├── aspect_sentiment.py          # Per-aspect sentiment extraction
-│       ├── product_sentiment.py         # Product-level sentiment aggregation
-│       ├── products_for_embedding.py    # Embedding text preparation
-│       ├── generate_embeddings.py       # BGE-M3 embedding generation
-│       └── load_chromadb.py             # Load embeddings into ChromaDB
+│       ├── product_images.py            # High-performance Parquet image lookup
+│       ├── retrieval.py                 # ProductRetriever class
+│       └── sentiment_analysis.py        # Review sentiment processing
 ├── frontend/
-│   └── src/
-│       ├── App.jsx                      # Main chat UI shell
-│       ├── App.css                      # Dark glassmorphism design system
-│       ├── api/recommend.js             # API client
-│       └── components/
-│           ├── ChatWindow.jsx           # Message list with auto-scroll
-│           ├── ChatInput.jsx            # Query input bar
-│           ├── MessageBubble.jsx        # User/bot message rendering
-│           ├── ProductCard.jsx          # Recommendation card
-│           ├── ProfileSelector.jsx      # User persona dropdown
-│           ├── FollowUpChips.jsx        # Clickable follow-up suggestions
-│           └── TypingIndicator.jsx      # Loading animation
+│   ├── index.html                       # HTML entry point with SmartPick favicon & typography
+│   ├── src/
+│   │   ├── App.jsx                      # ChatGPT-style full-viewport app layout
+│   │   ├── App.css                      # Warm editorial design system tokens
+│   │   ├── api/recommend.js             # FastAPI frontend client
+│   │   └── components/
+│   │       ├── CategoryBar.jsx          # 6-category horizontal navigation pills
+│   │       ├── ChatInput.jsx            # Multi-category anchored search composer
+│   │       ├── ChatWindow.jsx           # Clean conversation thread with start-anchored scroll
+│   │       ├── MessageBubble.jsx        # Recommendation overview & cards layout
+│   │       ├── ProductCard.jsx          # Circular rank badge (#1–#5), 150px photo, price & tags
+│   │       ├── ProfileSelector.jsx      # Multi-category shopping persona dropdown
+│   │       └── FollowUpChips.jsx        # Clickable follow-up prompt pills
+│   └── public/
+│       └── favicon.svg                  # SmartPick official SVG brand favicon
 ├── data/
-│   ├── chromadb/                        # ChromaDB persistent storage (5,096 products)
-│   ├── memory.db                        # SQLite user profiles
-│   ├── products.csv                     # Raw product metadata
-│   ├── products_clean.csv               # Cleaned product data
-│   ├── reviews.csv                      # Raw reviews
-│   ├── reviews_sentiment.csv            # Reviews with sentiment scores
-│   ├── product_sentiment.csv            # Aggregated product sentiment
-│   ├── product_aspect_sentiment.csv     # Per-aspect sentiment scores
-│   ├── products_for_embedding.csv       # Embedding-ready text
-│   ├── product_embeddings.npy           # BGE-M3 dense vectors
-│   └── product_embedding_asins.csv      # ASIN index for embeddings
-└── notebooks/                           # Jupyter notebooks for exploration
+│   ├── chromadb/                        # ChromaDB vector index (250,000+ products)
+│   ├── products_master.parquet          # Master catalog with authentic image URLs
+│   └── memory.db                        # SQLite user profile storage
+├── tests/
+│   ├── test_all_categories.py           # Multi-category LangGraph pipeline evaluation
+│   ├── test_fastapi_endpoints.py        # FastAPI live API regression suite
+│   ├── test_product_images.py           # Image URL resolution & fallback tests
+│   └── verify_fastapi_live.py           # Live endpoint smoke test
+└── requirements.txt                     # Python backend dependencies
 ```
 
-## Data Pipeline
+---
 
-```
-Amazon Cell Phones & Accessories dataset
-        |
-        v
-products.csv + reviews.csv                    (Raw data)
-        |
-        v
-products_clean.csv                             (Cleaned, structured specs extracted)
-        |
-        v
-reviews_sentiment.csv                          (VADER sentiment per review)
-        |
-        v
-product_sentiment.csv                          (Aggregated per product)
-product_aspect_sentiment.csv                   (Camera/battery/display/performance/value)
-        |
-        v
-products_for_embedding.csv                     (Merged text for BGE-M3)
-        |
-        v
-product_embeddings.npy                         (BGE-M3 dense vectors)
-        |
-        v
-ChromaDB (5,096 products with embeddings + metadata + sentiment)
-```
-
-## Agents
-
-| Agent | Purpose | Input | Output |
-|-------|---------|-------|--------|
-| **Query Understanding** | Parse natural language into structured fields | Raw query string | Intent, budget, brand, specs, quality tags |
-| **Retrieval** | Semantic search + metadata filtering | Parsed query | Top-K candidate products with specs & sentiment |
-| **Memory** | Load user preference profile | User ID | Brand prefs, budget, quality tags |
-| **Ranking** | Multi-signal scoring (5 weighted signals) | Candidates + profile | Ranked products with score breakdowns |
-| **XAI** | Generate human-readable explanations | Query + rankings | Per-product explanations + key factors |
-| **Follow-up** | Suggest next actions | Query + rankings | 2-4 contextual suggestions |
-| **Response** | Synthesize final output | All upstream outputs | Summary + product cards + follow-ups |
-
-### Intent-Based Routing
-
-After Query Understanding parses the intent and category, the orchestrator routes to one of four paths:
-
-| Condition | Route | What Happens |
-|-----------|-------|-------------|
-| Product query (in-scope) | **Full Pipeline** | Retrieval + Memory → Ranking → XAI + Follow-up → Response |
-| `comparison` / `follow_up` (with context) | **Context Response** | Uses previously shown products to compare or answer — skips retrieval/ranking |
-| `general_question` | **General Response** | Conversational reply (greetings, goodbyes, general knowledge) — no products |
-| Out-of-scope category (watches, laptops, etc.) | **Out of Scope** | Polite redirect explaining we only cover cell phones — no products |
-
-This means "Compare the top 2" actually compares the products just shown, "bye" gets a friendly goodbye, "i want watches under 1000" gets a polite redirect, and new phone queries still run the full pipeline.
-
-### Ranking Signals (Weighted)
-
-| Signal | Weight | Source |
-|--------|--------|--------|
-| Semantic similarity | 0.30 | BGE-M3 embedding distance |
-| Spec match | 0.20 | RAM/storage/camera/battery vs user requirements |
-| Sentiment | 0.15 | Aggregated review sentiment score |
-| Aspect alignment | 0.25 | Aspect-level sentiment for user's quality tags |
-| Memory alignment | 0.10 | Match against stored user preferences |
-
-## User Profiles (Demo)
-
-The system includes 1 default unpersonalized persona plus 3 pre-seeded user preference profiles stored in SQLite (`data/memory.db`) for demonstrating personalization:
-
-| Profile ID | Behavior |
-|------------|----------|
-| `anonymous` | No personalization (default baseline) |
-| `budget_conscious` | Prefers phones under Rs.10,000 |
-| `camera_focused` | Prioritizes good camera quality |
-| `samsung_loyalist` | Prefers Samsung brand |
-
-## Setup & Running
+## Setup & Installation
 
 ### Prerequisites
 
-- Python 3.10+
-- Node.js 18+
-- Google Gemini API key
+* **Python 3.10+**
+* **Node.js 18+** & **npm**
+* **Google Gemini API Key**
 
-### 1. Clone & create virtual environment
+### 1. Clone & Set Up Python Environment
 
 ```bash
 git clone <repo-url>
 cd RetailMindAI
 
+# Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # macOS/Linux
-```
 
-### 2. Install Python dependencies
+# Activate virtual environment
+# Windows:
+.\.venv\Scripts\activate
+# macOS/Linux:
+# source .venv/bin/activate
 
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-*(Or install manually: `pip install fastapi uvicorn python-dotenv google-genai pydantic chromadb FlagEmbedding numpy pandas nltk langgraph`)*
+### 2. Configure Environment Variables
 
-
-### 3. Set up environment variables
+Create a `.env` file in the project root:
 
 ```bash
-cp .env.example .env
-# Edit .env and add your Gemini API key:
-# GEMINI_API_KEY=your_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-### 4. Install frontend dependencies
+### 3. Install Frontend Dependencies
 
 ```bash
 cd frontend
 npm install
+cd ..
 ```
 
-### 5. Run the application
+---
+
+## Running the Application
+
+### 1. Start the Backend Server
 
 ```bash
-# Terminal 1 — Backend (from project root)
-uvicorn backend.main:app --reload
+# From project root
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-# Terminal 2 — Frontend
+* Backend API: `http://127.0.0.1:8000`
+* Interactive API Docs (Swagger): `http://127.0.0.1:8000/docs`
+
+### 2. Start the Frontend Development Server
+
+```bash
+# In a separate terminal
 cd frontend
 npm run dev
 ```
 
-- **Backend**: http://localhost:8000
-- **Frontend**: http://localhost:5173
-- **API Docs**: http://localhost:8000/docs
+* Web Application: `http://127.0.0.1:5173`
+
+---
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Health check |
-| `/health` | GET | Service health status |
-| `/understand` | POST | Debug: parse query only |
-| `/recommend` | POST | **Full pipeline** — returns ranked recommendations |
+|---|---|---|
+| `/` | `GET` | Root status endpoint (`{"message": "SmartPick backend is running"}`) |
+| `/health` | `GET` | Health check with supported categories count (`6`) |
+| `/understand` | `POST` | Inspect Query Understanding agent output for debugging |
+| `/recommend` | `POST` | Primary recommendation endpoint executing the full pipeline |
 
-### Example: Product Recommendation
+### Example Request: Product Recommendation
 
 ```bash
-curl -X POST http://localhost:8000/recommend \
+curl -X POST http://127.0.0.1:8000/recommend \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Best Samsung phone under 15000 with good camera",
-    "user_id": "camera_focused",
+    "query": "Samsung phone under ₹30000 with 8GB RAM",
+    "user_id": "budget_conscious",
     "top_k": 5
   }'
 ```
 
-### Example: Follow-up with Context
+### Example Request: Follow-up Comparison with Context
 
 ```bash
-curl -X POST http://localhost:8000/recommend \
+curl -X POST http://127.0.0.1:8000/recommend \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Compare the top 2 options",
-    "user_id": "camera_focused",
+    "user_id": "budget_conscious",
     "previous_products": [
-      {"asin": "B00...", "title": "Samsung Galaxy A...", "brand": "Samsung", "price_inr": 12500},
-      {"asin": "B01...", "title": "Samsung Galaxy M...", "brand": "Samsung", "price_inr": 14000}
+      {
+        "asin": "B07RPHM14M",
+        "title": "Galaxy S10 5G 8GB RAM 256GB",
+        "brand": "SAMSUNG",
+        "price_inr": 28687.0
+      },
+      {
+        "asin": "B08N5WRWNW",
+        "title": "Galaxy A51 8GB RAM 128GB",
+        "brand": "SAMSUNG",
+        "price_inr": 22499.0
+      }
     ]
   }'
 ```
 
-### Example Response
+### Example Structured Response
 
 ```json
 {
-  "summary": "Here are the best Samsung phone options under 15000...",
+  "summary": "Here are the top Samsung phones under ₹30,000 matching your 8GB RAM requirement.",
   "recommendations": [
     {
-      "asin": "B00...",
-      "title": "Samsung Galaxy...",
-      "brand": "Samsung",
-      "price_inr": 12500.0,
-      "explanation": "This Samsung phone matches your budget with strong camera reviews.",
-      "key_factors": ["Within budget", "Strong camera sentiment", "Samsung brand match"]
+      "asin": "B07RPHM14M",
+      "title": "Samsung Galaxy S10 5G Enabled 6.7in 8GB+256GB",
+      "brand": "SAMSUNG",
+      "price_inr": 28687.12,
+      "image_url": "https://m.media-amazon.com/images/I/41lVosxv3pL._AC_.jpg",
+      "explanation": "Matches your 8GB RAM specification and falls within your ₹30,000 budget with strong customer sentiment.",
+      "key_factors": ["8GB RAM verified", "Under ₹30,000", "High camera sentiment"]
     }
   ],
-  "additional_information": "All products are from Samsung and priced under 15000.",
+  "additional_information": "Both models include 8GB RAM and support fast charging.",
   "follow_up_suggestions": [
-    "Want me to compare the top 2 options?",
-    "Would you like to see phones with more storage?"
+    "Compare the battery life of the top 2 options",
+    "Would you prefer an AMOLED display?"
   ]
 }
 ```
 
-## Testing & Verification
+---
 
-You can run the end-to-end pipeline smoke test directly from the command line:
+## Testing & Quality Verification
+
+Run the comprehensive automated test suite (103 unit and integration tests):
 
 ```bash
-# Run full orchestrator pipeline test across multiple intents
-python -m backend.orchestrator.graph
+# Run complete test suite
+pytest tests/
+
+# Test live FastAPI server integration
+python -m tests.verify_fastapi_live
+
+# Test multi-category evaluation queries
+python -m tests.test_all_categories
+
+# Build production frontend bundle
+cd frontend && npm run build
 ```
 
-You can also run individual agent/pipeline test scripts located in `backend/pipeline/`:
-```bash
-python backend/pipeline/test_retrieval.py
-python backend/pipeline/test_ranking.py
-python backend/pipeline/test_xai.py
-```
+---
+
+## User Personas (Personalization Demo)
+
+SmartPick includes pre-seeded user preference profiles stored in SQLite (`data/memory.db`):
+
+| Persona ID | Label | Behavioral Bias |
+|---|---|---|
+| `anonymous` | **Standard Search** | Neutral baseline (no personalization applied) |
+| `budget_conscious` | **Budget Conscious** | Strong preference for maximum value and lower price tiers |
+| `camera_focused` | **Quality & Optics** | Prioritizes build quality, premium optics, and top sentiment |
+| `samsung_loyalist` | **Brand Loyalist** | Prioritizes preferred brand affinity |
+
+---
 
 ## License
 
-This project is for academic/research purposes.
-
+This project is developed for educational, academic, and research purposes.

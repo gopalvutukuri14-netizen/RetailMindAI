@@ -9,7 +9,7 @@ from backend.orchestrator import run_pipeline
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="RetailMind AI",
+    title="SmartPick",
     description="AI-powered retail product recommendation system",
     version="1.0.0",
 )
@@ -54,7 +54,7 @@ class RecommendRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "RetailMind AI backend is running"}
+    return {"message": "SmartPick backend is running"}
 
 
 @app.get("/health")

@@ -1,16 +1,20 @@
 /* ── Chat Window ───────────────────────────────────────────── */
+/* Note: Main scrolling is handled by the outer .app-main-scroller
+   to place the scrollbar at the far-right edge (ChatGPT style).
+   Do NOT set overflow-y here. */
 .chat-window {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  scroll-behavior: smooth;
+  gap: 22px;
+  width: 100%;
 }
 
-/* Empty state (no messages yet, before welcome) */
-.chat-window--empty {
-  align-items: center;
-  justify-content: center;
+.chat-window__message-wrapper {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .chat-window {
+    gap: 16px;
+  }
 }
