@@ -11,6 +11,8 @@ Expensive resources are initialized lazily and reused.
 
 import os
 import logging
+import time
+import concurrent.futures
 
 from dotenv import load_dotenv
 from google import genai
@@ -19,6 +21,7 @@ from google.genai import types
 from backend.Agents.query_understanding import (
     QueryUnderstandingAgent,
     Intent,
+    RetailCategory,
 )
 from backend.Agents.retrieval import RetrievalAgent
 from backend.Agents.memory import MemoryAgent
@@ -28,15 +31,22 @@ from backend.Agents.follow_up import FollowUpAgent
 from backend.Agents.response import (
     ResponseAgent,
     ResponseResult,
+    ResponseProduct,
 )
 from backend.pipeline.retrieval import ProductRetriever
 from backend.Agents.gemini_retry import call_with_retry
+from backend.orchestrator.comparison_helper import (
+    select_two_products_to_compare,
+    build_category_comparison_data,
+)
 
 from .state import PipelineState
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+_thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 
 # ================================================================
@@ -173,8 +183,24 @@ def query_understanding_node(state: PipelineState) -> dict:
     Convert the user's natural-language query into structured fields,
     including intent, category, product type, budget, brand and specs.
     """
+    t0 = time.perf_counter()
     agent = _get_query_understanding_agent()
     result = agent.understand(state["raw_query"])
+
+    # If an explicit category filter was selected from the UI, apply it
+    if state.get("category"):
+        try:
+            result.category = RetailCategory(state["category"])
+        except (ValueError, KeyError):
+            pass
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "stage=query_understanding duration_ms=%.1f category=%s intent=%s",
+        dur_ms,
+        result.category,
+        result.intent,
+    )
 
     return {"query_understanding": result}
 
@@ -230,6 +256,7 @@ def retrieval_node(state: PipelineState) -> dict:
     The Retrieval Agent applies the category, budget, brand and
     product-type logic defined in its own implementation.
     """
+    t0 = time.perf_counter()
     agent = _get_retrieval_agent()
     top_k = state.get("top_k", 10)
 
@@ -237,6 +264,9 @@ def retrieval_node(state: PipelineState) -> dict:
         state["query_understanding"],
         top_k=top_k,
     )
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=retrieval duration_ms=%.1f candidates=%d", dur_ms, len(result.products))
 
     return {"retrieval_result": result}
 
@@ -247,10 +277,14 @@ def retrieval_node(state: PipelineState) -> dict:
 
 def memory_node(state: PipelineState) -> dict:
     """Load the user's stored preferences from SQLite."""
+    t0 = time.perf_counter()
     agent = _get_memory_agent()
     user_id = state.get("user_id", "anonymous")
 
     result = agent.get_profile(user_id)
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=memory duration_ms=%.1f user=%s", dur_ms, "auth" if user_id != "anonymous" else "anon")
 
     return {"user_profile": result}
 
@@ -264,6 +298,7 @@ def ranking_node(state: PipelineState) -> dict:
     Rank retrieved products using similarity, specifications,
     sentiment, aspect alignment and user preferences.
     """
+    t0 = time.perf_counter()
     agent = _get_ranking_agent()
 
     result = agent.rank(
@@ -272,7 +307,19 @@ def ranking_node(state: PipelineState) -> dict:
         state.get("user_profile"),
     )
 
-    return {"ranking_result": result}
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=ranking duration_ms=%.1f ranked=%d", dur_ms, len(result.products))
+
+    # Pre-launch Follow-up Agent concurrently while XAI Agent generates explanations
+    fu_future = None
+    if result.products:
+        fu_future = _thread_pool.submit(
+            _get_followup_agent().suggest,
+            state["query_understanding"],
+            result,
+        )
+
+    return {"ranking_result": result, "_fu_future": fu_future}
 
 
 # ================================================================
@@ -281,12 +328,16 @@ def ranking_node(state: PipelineState) -> dict:
 
 def xai_node(state: PipelineState) -> dict:
     """Generate explanations for the ranked products."""
+    t0 = time.perf_counter()
     agent = _get_xai_agent()
 
     result = agent.explain(
         state["query_understanding"],
         state["ranking_result"],
     )
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=xai duration_ms=%.1f explanations=%d", dur_ms, len(result.explanations))
 
     return {"xai_result": result}
 
@@ -297,12 +348,28 @@ def xai_node(state: PipelineState) -> dict:
 
 def followup_node(state: PipelineState) -> dict:
     """Generate useful next-step suggestions based on recommendations."""
-    agent = _get_followup_agent()
+    t0 = time.perf_counter()
+    fu_future = state.get("_fu_future")
 
-    result = agent.suggest(
-        state["query_understanding"],
-        state["ranking_result"],
-    )
+    if fu_future:
+        try:
+            result = fu_future.result(timeout=25.0)
+        except Exception as exc:
+            logger.warning("Concurrent follow-up retrieval failed, falling back to sync: %s", exc)
+            agent = _get_followup_agent()
+            result = agent.suggest(
+                state["query_understanding"],
+                state["ranking_result"],
+            )
+    else:
+        agent = _get_followup_agent()
+        result = agent.suggest(
+            state["query_understanding"],
+            state["ranking_result"],
+        )
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=follow_up duration_ms=%.1f suggestions=%d", dur_ms, len(result.suggestions))
 
     return {"followup_result": result}
 
@@ -313,6 +380,7 @@ def followup_node(state: PipelineState) -> dict:
 
 def response_node(state: PipelineState) -> dict:
     """Build the structured final response for the API/frontend."""
+    t0 = time.perf_counter()
     agent = _get_response_agent()
 
     result = agent.generate(
@@ -349,6 +417,9 @@ def response_node(state: PipelineState) -> dict:
             )
         except Exception as exc:
             logger.warning("Failed to update memory for authenticated user: %s", exc)
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=response duration_ms=%.1f recommendations=%d", dur_ms, len(result.recommendations))
 
     return {"response_result": result}
 
@@ -464,11 +535,15 @@ def context_response_node(state: PipelineState) -> dict:
     Handle comparisons and follow-up questions using previously
     returned products rather than performing a new retrieval.
     """
+    t0 = time.perf_counter()
     client = _get_gemini_client()
 
     raw_query = state["raw_query"]
     previous = state.get("previous_products", [])
     intent = state["query_understanding"].intent
+
+    # Select target products for comparison
+    prod_a, prod_b = select_two_products_to_compare(previous, raw_query)
 
     # Build a factual representation of the previous recommendations.
     product_lines = []
@@ -488,12 +563,15 @@ def context_response_node(state: PipelineState) -> dict:
         )
 
     products_text = "\n\n".join(product_lines)
+    is_comparison = intent == Intent.COMPARISON or "compare" in raw_query.casefold()
 
-    if intent == Intent.COMPARISON:
+    if is_comparison:
         task = (
-            "Compare the top two products. Explain their differences "
-            "using only the available product information, including "
-            "price, brand, features and customer sentiment when available."
+            "Provide a side-by-side product comparison of the selected two products. "
+            "Generate structured comparison rows matching ComparisonData. "
+            "Use only available product information including price, brand, features, and sentiment. "
+            "Never invent missing values; use 'Not available in catalog' for missing fields. "
+            "Provide a concise conclusion explaining key trade-offs and who each product suits best."
         )
     else:
         task = (
@@ -508,7 +586,7 @@ Previously returned products:
 
 {products_text}
 
-User's new question:
+User's new request:
 {raw_query}
 
 Task:
@@ -516,11 +594,17 @@ Task:
 
 Rules:
 1. Reference only products included in the supplied context.
-2. Never invent product specifications, prices or review statistics.
-3. If a detail is unavailable, say that it is unavailable.
+2. Never invent product specifications, prices, or review statistics.
+3. If a detail is unavailable, use 'Not available in catalog'.
 4. Keep the response clear and useful.
 5. Return JSON matching the required response schema.
 """
+
+    category_val = (
+        getattr(state["query_understanding"].category, "value", str(state["query_understanding"].category))
+        if state["query_understanding"].category
+        else None
+    )
 
     def _call():
         return client.models.generate_content(
@@ -540,9 +624,13 @@ Rules:
         result = ResponseResult.model_validate_json(response.text)
     except Exception as exc:
         logger.warning(
-            "context_response_node: Gemini unavailable, using plain fallback: %s", exc
+            "context_response_node: Gemini unavailable, using deterministic fallback: %s", exc
         )
-        from backend.Agents.response.schema import ResponseProduct
+        comp_fallback = None
+        if is_comparison and prod_a and prod_b:
+            comp_fallback = build_category_comparison_data(prod_a, prod_b, category=category_val)
+
+        target_prods = [prod_a, prod_b] if (is_comparison and prod_a and prod_b) else previous
         recs = [
             ResponseProduct(
                 asin=p.get("asin", ""),
@@ -553,39 +641,75 @@ Rules:
                 explanation=p.get("explanation", ""),
                 key_factors=p.get("key_factors", []),
             )
-            for p in previous
+            for p in target_prods
         ]
+        dur_ms = (time.perf_counter() - t0) * 1000
+        logger.info("stage=context_response duration_ms=%.1f fallback=true", dur_ms)
         return {
             "response_result": ResponseResult(
-                summary="Here are the previously recommended products for your follow-up.",
+                summary="Here is the side-by-side product comparison." if is_comparison else "Here are the previously recommended products for your follow-up.",
                 recommendations=recs,
                 additional_information="",
-                follow_up_suggestions=[],
+                comparison=comp_fallback,
+                follow_up_suggestions=[
+                    "Which one has better customer reviews?",
+                    "Are there budget alternatives?",
+                    "Start a new search",
+                ],
             )
         }
 
-    # Preserve factual product identity, prices, and image URLs from previous results.
-    previous_by_title = {
-        product.get("title", "").casefold().strip(): product
-        for product in previous
-    }
-
-    for recommendation in result.recommendations:
-        match = previous_by_title.get(
-            recommendation.title.casefold().strip()
+    # If comparison mode, guarantee structured comparison and exactly 2 compared products
+    if is_comparison and prod_a and prod_b:
+        result.comparison = build_category_comparison_data(
+            prod_a, prod_b, category=category_val, gemini_comparison=result.comparison
         )
+        result.recommendations = [
+            ResponseProduct(
+                asin=prod_a.get("asin", ""),
+                title=prod_a.get("title", "Product 1"),
+                brand=prod_a.get("brand"),
+                price_inr=prod_a.get("price_inr"),
+                image_url=prod_a.get("image_url"),
+                explanation=prod_a.get("explanation", ""),
+                key_factors=prod_a.get("key_factors", []),
+            ),
+            ResponseProduct(
+                asin=prod_b.get("asin", ""),
+                title=prod_b.get("title", "Product 2"),
+                brand=prod_b.get("brand"),
+                price_inr=prod_b.get("price_inr"),
+                image_url=prod_b.get("image_url"),
+                explanation=prod_b.get("explanation", ""),
+                key_factors=prod_b.get("key_factors", []),
+            ),
+        ]
+    else:
+        # Preserve factual product identity, prices, and image URLs from previous results.
+        previous_by_title = {
+            product.get("title", "").casefold().strip(): product
+            for product in previous
+        }
 
-        if match:
-            recommendation.asin = match.get(
-                "asin", recommendation.asin
+        for recommendation in result.recommendations:
+            match = previous_by_title.get(
+                recommendation.title.casefold().strip()
             )
-            recommendation.brand = match.get(
-                "brand", recommendation.brand
-            )
-            recommendation.price_inr = match.get(
-                "price_inr", recommendation.price_inr
-            )
-            if "image_url" in match:
-                recommendation.image_url = match.get("image_url")
+
+            if match:
+                recommendation.asin = match.get(
+                    "asin", recommendation.asin
+                )
+                recommendation.brand = match.get(
+                    "brand", recommendation.brand
+                )
+                recommendation.price_inr = match.get(
+                    "price_inr", recommendation.price_inr
+                )
+                if "image_url" in match:
+                    recommendation.image_url = match.get("image_url")
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info("stage=context_response duration_ms=%.1f has_comparison=%s", dur_ms, bool(result.comparison))
 
     return {"response_result": result}

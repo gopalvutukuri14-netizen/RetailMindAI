@@ -5,9 +5,21 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from pydantic import BaseModel, Field
 from .schema import ResponseResult, ResponseProduct
 from backend.Agents.gemini_retry import call_with_retry
 from backend.pipeline.product_images import get_product_images
+from backend.orchestrator.comparison_helper import build_category_comparison_data
+
+
+class ResponseSynthesis(BaseModel):
+    summary: str = Field(
+        description="Short natural-language summary of the recommendations"
+    )
+    additional_information: str = Field(
+        default="",
+        description="Useful context or highlights across the options"
+    )
 
 
 # Load environment variables from .env
@@ -89,7 +101,7 @@ class ResponseAgent:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=ResponseResult,
+                    response_schema=ResponseSynthesis,
                     temperature=0.3,
                 ),
             )
@@ -100,7 +112,7 @@ class ResponseAgent:
             response = call_with_retry(_call, context="ResponseAgent")
             if not response.text:
                 raise RuntimeError("ResponseAgent: empty Gemini response")
-            generated = ResponseResult.model_validate_json(response.text)
+            generated = ResponseSynthesis.model_validate_json(response.text)
             summary = generated.summary
             additional_information = generated.additional_information
         except Exception as exc:
@@ -158,15 +170,24 @@ class ResponseAgent:
                 )
             )
 
+        comparison_data = None
+        intent_val = getattr(query, "intent", None)
+        if intent_val and str(intent_val).lower() == "comparison" and len(recommendations) >= 2:
+            prod_a_dict = recommendations[0].model_dump()
+            prod_b_dict = recommendations[1].model_dump()
+            category_val = getattr(query.category, "value", str(query.category)) if getattr(query, "category", None) else None
+            comparison_data = build_category_comparison_data(prod_a_dict, prod_b_dict, category=category_val)
+
         return ResponseResult(
             summary=generated_summary,
             recommendations=recommendations,
             additional_information=generated_additional,
+            comparison=comparison_data,
             follow_up_suggestions=[
                 suggestion.suggestion_text
                 for suggestion in followup_result.suggestions
             ],
-    )
+        )
 
     def _build_prompt(
         self,
@@ -249,32 +270,18 @@ Rules:
 
 1. Create a short summary explaining what the user asked for.
 
-2. Include the ranked products in the same order.
-
-3. Use ONLY the products provided by the Ranking Agent.
-
-4. Use the XAI explanations as the basis for explaining
-   why each product was recommended.
-
-5. Do not invent specifications, features, prices,
+2. Do not invent specifications, features, prices,
    review information, or customer opinions.
 
-6. Do not change product identities.
+3. Keep product explanations short and easy to understand.
 
-7. Keep product explanations short and easy to understand.
-
-8. additional_information should contain useful context
+4. additional_information should contain useful context
    from the supplied ranking and XAI information.
    If there is nothing useful to add, keep it short.
 
-9. Do not create new follow-up questions.
-   Use the suggestions supplied by the Follow-up Agent.
-
-10. Keep the response concise and suitable for a shopping chatbot.
+5. Keep the response concise and suitable for a shopping chatbot.
 
 The final output must contain:
 - summary
-- recommendations
 - additional_information
-- follow_up_suggestions
 """.strip()

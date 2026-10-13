@@ -29,6 +29,39 @@ class ResponseProduct(BaseModel):
     )
 
 
+class ComparisonRow(BaseModel):
+    aspect: str = Field(
+        description="Comparison aspect, e.g. 'Price', 'Brand', 'Key Specifications', 'Customer Sentiment', 'Main Strengths', 'Known Limitations', 'Best Suited For'"
+    )
+    product_a: str = Field(
+        description="Value or evidence for Product A (or 'Not available in catalog' if missing)"
+    )
+    product_b: str = Field(
+        description="Value or evidence for Product B (or 'Not available in catalog' if missing)"
+    )
+
+
+class ComparisonData(BaseModel):
+    heading: str = Field(
+        description="Concise comparison heading, e.g. 'Comparing Product A vs Product B'"
+    )
+    product_a_asin: str | None = Field(
+        default=None,
+        description="ASIN for Product A"
+    )
+    product_b_asin: str | None = Field(
+        default=None,
+        description="ASIN for Product B"
+    )
+    rows: list[ComparisonRow] = Field(
+        default_factory=list,
+        description="Category-adapted comparison rows"
+    )
+    conclusion: str = Field(
+        description="Short concluding paragraph explaining key differences and which suits which user"
+    )
+
+
 class ResponseResult(BaseModel):
     summary: str = Field(
         description="Short natural-language summary of the recommendation"
@@ -42,6 +75,11 @@ class ResponseResult(BaseModel):
     additional_information: str = Field(
         default="",
         description="Useful additional information or comparison context"
+    )
+
+    comparison: ComparisonData | None = Field(
+        default=None,
+        description="Structured side-by-side comparison data and conclusion when comparing products"
     )
 
     follow_up_suggestions: list[str] = Field(

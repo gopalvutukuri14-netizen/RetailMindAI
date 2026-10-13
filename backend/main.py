@@ -52,6 +52,10 @@ class RecommendRequest(BaseModel):
         default_factory=list,
         description="Products from the last recommendation, for follow-up/comparison context",
     )
+    category: Optional[str] = Field(
+        default=None,
+        description="Explicit category context selected in frontend",
+    )
 
 
 # ?? Endpoints ????????????????????????????????????????????????????
@@ -99,16 +103,31 @@ def recommend(
     # Derive identity securely from authenticated token if logged in
     effective_user_id = current_user.id if current_user else request.user_id
 
+    import time
+    t0 = time.perf_counter()
+
     try:
-        result = run_pipeline(
-            raw_query=request.query,
-            user_id=effective_user_id,
-            top_k=request.top_k,
-            previous_products=request.previous_products or None,
+        kwargs = {
+            "raw_query": request.query,
+            "user_id": effective_user_id,
+            "top_k": request.top_k,
+            "previous_products": request.previous_products or None,
+        }
+        if request.category is not None:
+            kwargs["category"] = request.category
+
+        result = run_pipeline(**kwargs)
+        api_dur_ms = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "endpoint=/recommend status=200 duration_ms=%.1f user=%s category=%s",
+            api_dur_ms,
+            "auth" if current_user else "anon",
+            request.category,
         )
         return result.model_dump()
     except Exception as exc:
-        logger.error("recommend endpoint error: %s", exc, exc_info=True)
+        api_dur_ms = (time.perf_counter() - t0) * 1000
+        logger.error("recommend endpoint error: %s (duration_ms=%.1f)", exc, api_dur_ms, exc_info=True)
         # Sanitize: do not expose internal exception details to the client.
         raise HTTPException(
             status_code=500,

@@ -13,7 +13,7 @@ class RetrievalAgent:
 
     FETCH_MULTIPLIER = 5
     MAX_FETCH = 50
-    TITLE_FETCH_LIMIT = 100
+    TITLE_FETCH_LIMIT = 15
 
     PRODUCT_TYPE_ALIASES = {
         "phone": [

@@ -10,13 +10,15 @@ const API_BASE = "http://localhost:8000";
  * @param {string} userId             - Fallback profile ID if anonymous
  * @param {number} topK               - Number of products to return
  * @param {Array}  previousProducts   - Products from the last recommendation (for follow-up context)
+ * @param {string|null} category      - Explicit category context if selected
  * @returns {Promise<object>} ResponseResult from the backend
  */
 export async function getRecommendations(
   query,
   userId = "anonymous",
   topK = 5,
-  previousProducts = []
+  previousProducts = [],
+  category = null
 ) {
   const body = {
     query,
@@ -27,6 +29,11 @@ export async function getRecommendations(
   // Only send previous products if there are any
   if (previousProducts.length > 0) {
     body.previous_products = previousProducts;
+  }
+
+  // Attach explicit category filter context if provided
+  if (category) {
+    body.category = category;
   }
 
   const headers = {

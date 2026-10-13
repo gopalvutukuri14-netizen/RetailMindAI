@@ -29,7 +29,10 @@ routing based on query intent:
 ``run_pipeline()`` is the single entry point used by the API.
 """
 
+import logging
 from langgraph.graph import StateGraph, START, END
+
+logger = logging.getLogger(__name__)
 
 from .state import PipelineState
 from .nodes import (
@@ -137,6 +140,7 @@ def run_pipeline(
     user_id: str = "anonymous",
     top_k: int = 5,
     previous_products: list[dict] | None = None,
+    category: str | None = None,
     return_state: bool = False,
 ) -> ResponseResult | tuple[ResponseResult, PipelineState]:
     """
@@ -149,12 +153,15 @@ def run_pipeline(
         top_k:              Number of products to retrieve and rank.
         previous_products:  Products from the last recommendation (if any),
                             used for follow-up/comparison queries.
+        category:           Selected category context from the frontend (if any).
         return_state:       If True, returns a tuple of (ResponseResult, PipelineState).
 
     Returns:
         A ``ResponseResult`` ready to be serialized and sent to the
         frontend (or tuple of (ResponseResult, PipelineState) if return_state=True).
     """
+    import time
+    t0 = time.perf_counter()
 
     initial_state: PipelineState = {
         "raw_query": raw_query,
@@ -164,6 +171,9 @@ def run_pipeline(
 
     if previous_products:
         initial_state["previous_products"] = previous_products
+
+    if category:
+        initial_state["category"] = category
 
     # LangGraph's invoke() runs the full graph synchronously and
     # returns the final accumulated state dict.
@@ -177,6 +187,11 @@ def run_pipeline(
             "Pipeline completed without producing a response_result. "
             "Check the graph wiring and node return keys."
         )
+
+    dur_ms = (time.perf_counter() - t0) * 1000
+    logger.info(
+        "stage=pipeline_total duration_ms=%.1f route=%s", dur_ms, final_state.get("route")
+    )
 
     if return_state:
         return response_result, final_state

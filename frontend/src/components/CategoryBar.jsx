@@ -108,9 +108,6 @@ export default function CategoryBar({ activeCategory, onSelectCategory, onTrigge
               className={`category-bar__item ${isActive ? "category-bar__item--active" : ""}`}
               onClick={() => {
                 onSelectCategory(cat.id);
-                if (cat.sampleQuery && onTriggerQuery) {
-                  onTriggerQuery(cat.sampleQuery);
-                }
               }}
               aria-pressed={isActive}
             >

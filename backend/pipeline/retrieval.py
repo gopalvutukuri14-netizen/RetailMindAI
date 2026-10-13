@@ -81,18 +81,16 @@ class ProductRetriever:
         self,
         terms: list[str],
         where: dict | None = None,
-        max_results: int = 100,
-        batch_size: int = 1000,
+        max_results: int = 15,
+        batch_size: int = 500,
+        max_scan: int = 1000,
     ):
         """
         Find products whose stored titles contain any requested term.
 
-        This scans catalog metadata in batches because title substring
-        matching is performed in Python, not through an unsupported
-        ChromaDB metadata substring filter.
-
-        Results are limited to max_results. This is a targeted
-        fallback, not a guarantee of exhaustive product discovery.
+        Scans catalog metadata in small, bounded batches without loading large
+        document blobs. This avoids long table scans across the full database.
+        Results are limited to max_results.
         """
 
         if max_results < 1 or not terms:
@@ -110,26 +108,21 @@ class ProductRetriever:
         products = []
         offset = 0
 
-        while len(products) < max_results:
+        while len(products) < max_results and offset < max_scan:
             batch = self.collection.get(
                 where=where,
                 limit=batch_size,
                 offset=offset,
-                include=["metadatas", "documents"],
+                include=["metadatas"],
             )
 
             ids = batch.get("ids", [])
             metadatas = batch.get("metadatas") or []
-            documents = batch.get("documents") or []
 
             if not ids:
                 break
 
-            for product_id, metadata, document in zip(
-                ids,
-                metadatas,
-                documents,
-            ):
+            for product_id, metadata in zip(ids, metadatas):
                 metadata = metadata or {}
                 title = str(metadata.get("title") or "")
                 title_lower = title.casefold()
@@ -141,7 +134,7 @@ class ProductRetriever:
                     products.append({
                         "asin": product_id,
                         "metadata": metadata,
-                        "document": document or "",
+                        "document": title,
                         # A title-only candidate has no semantic
                         # distance from this query.
                         "distance": 1.0,

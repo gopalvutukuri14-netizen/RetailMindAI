@@ -6,22 +6,15 @@ import CategoryBar, { CATEGORIES } from "./components/CategoryBar";
 import ChatWindow from "./components/ChatWindow";
 import ChatInput from "./components/ChatInput";
 import { getRecommendations } from "./api/recommend";
+import { CATEGORY_EXAMPLE_QUERIES } from "./constants/categories";
 import "./App.css";
 
-const MULTI_CATEGORY_QUERIES = [
-  { category: "Phones", query: "Samsung phone under ₹30000 with 8GB RAM" },
-  { category: "Electronics", query: "Wireless Bluetooth headphones for gaming" },
-  { category: "Home & Kitchen", query: "Non-stick cookware set for a family" },
-  { category: "Clothing", query: "Durable winter jacket" },
-  { category: "Office", query: "Comfortable ergonomic office chair" },
-  { category: "Sports", query: "Running shoes for daily jogging" },
-  { category: "Demo", query: "Test product images & fallbacks" },
-];
+export { CATEGORY_EXAMPLE_QUERIES };
 
 const WELCOME_MESSAGE = {
   role: "bot",
   type: "welcome",
-  exampleQueries: MULTI_CATEGORY_QUERIES,
+  exampleQueries: CATEGORY_EXAMPLE_QUERIES.all,
 };
 
 export default function App() {
@@ -34,10 +27,33 @@ export default function App() {
   // like "Compare top 2" can reference them instead of doing a fresh search.
   const lastProductsRef = useRef([]);
 
+  // Dynamically update welcome message's example queries whenever category changes
+  const handleCategoryChange = useCallback((newCatId) => {
+    setActiveCategory(newCatId);
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0].type === "welcome") {
+        return [
+          {
+            ...prev[0],
+            category: newCatId,
+            exampleQueries: CATEGORY_EXAMPLE_QUERIES[newCatId] || CATEGORY_EXAMPLE_QUERIES.all,
+          },
+        ];
+      }
+      return prev;
+    });
+  }, []);
+
   const handleNewSearch = useCallback(() => {
-    setMessages([WELCOME_MESSAGE]);
-    lastProductsRef.current = [];
     setActiveCategory("all");
+    setMessages([
+      {
+        role: "bot",
+        type: "welcome",
+        exampleQueries: CATEGORY_EXAMPLE_QUERIES.all,
+      },
+    ]);
+    lastProductsRef.current = [];
   }, []);
 
   const sendQuery = useCallback(
@@ -47,16 +63,17 @@ export default function App() {
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
 
-      // Check if user clicked a specific category or typed fresh
-      const matchingCategory = CATEGORIES.find(
-        (c) => c.sampleQuery && c.sampleQuery.toLowerCase() === query.toLowerCase().trim()
-      );
-      if (matchingCategory) {
-        setActiveCategory(matchingCategory.id);
-      } else {
-        // Fresh natural-language query: avoid stale category lock
-        setActiveCategory("all");
+      // Check if user clicked an example query associated with a specific category
+      for (const [catId, queries] of Object.entries(CATEGORY_EXAMPLE_QUERIES)) {
+        if (catId !== "all" && queries.some((q) => q.query.toLowerCase() === query.toLowerCase().trim())) {
+          setActiveCategory(catId);
+          break;
+        }
       }
+
+      // Determine category filter if any from currently active category
+      const activeCatObj = CATEGORIES.find((c) => c.id === activeCategory);
+      const categoryContext = activeCatObj?.categoryEnum || null;
 
       // Diagnostic scenario test: renders valid image, missing image, and broken image fallback
       const normalizedQuery = query.toLowerCase().trim();
@@ -123,7 +140,8 @@ export default function App() {
           query,
           user?.id || "anonymous",
           5,
-          lastProductsRef.current
+          lastProductsRef.current,
+          categoryContext
         );
 
         const botMsg = { role: "bot", type: "recommendation", data };
@@ -146,7 +164,7 @@ export default function App() {
         setIsLoading(false);
       }
     },
-    [user?.id]
+    [user?.id, activeCategory]
   );
 
   const handleFollowUp = useCallback(
@@ -208,8 +226,7 @@ export default function App() {
 
           <CategoryBar
             activeCategory={activeCategory}
-            onSelectCategory={setActiveCategory}
-            onTriggerQuery={sendQuery}
+            onSelectCategory={handleCategoryChange}
           />
         </div>
       </header>
