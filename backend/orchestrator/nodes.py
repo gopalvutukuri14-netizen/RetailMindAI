@@ -322,6 +322,34 @@ def response_node(state: PipelineState) -> dict:
         state["followup_result"],
     )
 
+    # Persist and dynamically evolve authenticated user preferences & memory in Cloud PostgreSQL
+    user_id = state.get("user_id", "anonymous")
+    if user_id and user_id not in ("anonymous", "null", "undefined"):
+        try:
+            mem_agent = _get_memory_agent()
+            mem_agent.update_preferences_from_interaction(
+                user_id=user_id,
+                query_understanding=state.get("query_understanding"),
+                raw_query=state.get("raw_query", ""),
+            )
+            summary = getattr(result, "summary", "Product recommendation")
+            top_prod = None
+            if hasattr(result, "recommendations") and result.recommendations:
+                top_prod = getattr(result.recommendations[0], "title", None)
+
+            mem_agent.save_conversation_turn(
+                user_id=user_id,
+                conversation_id=f"conv_{user_id}",
+                query_text=state.get("raw_query", ""),
+                context_summary=summary,
+                context_data={
+                    "category": getattr(state.get("query_understanding"), "category", None),
+                    "top_product": top_prod,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to update memory for authenticated user: %s", exc)
+
     return {"response_result": result}
 
 

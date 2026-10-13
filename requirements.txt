@@ -6,6 +6,15 @@ uvicorn
 pydantic
 python-dotenv
 
+# --- Database & Migrations ---
+sqlalchemy>=2.0
+alembic
+psycopg[binary]
+
+# --- Authentication & Security ---
+argon2-cffi
+pyjwt
+
 # --- LLM (Query Understanding, XAI, Follow-up, Response agents) ---
 google-genai
 

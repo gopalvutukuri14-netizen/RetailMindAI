@@ -1,17 +1,19 @@
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+import logging
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import logging
 
 from backend.orchestrator import run_pipeline
-
+from backend.auth import auth_router, get_current_user_optional
+from backend.database.models import User
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="SmartPick",
-    description="AI-powered retail product recommendation system",
-    version="1.0.0",
+    description="AI-powered retail product recommendation system with explainable AI and authentication",
+    version="1.1.0",
 )
 
 # Allow the React dev server to call the API
@@ -23,9 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include Authentication Router
+app.include_router(auth_router)
 
 
-# ── Request / response models ───────────────────────────────────
+# ?? Request / response models ???????????????????????????????????
 
 class QueryRequest(BaseModel):
     query: str
@@ -50,7 +54,7 @@ class RecommendRequest(BaseModel):
     )
 
 
-# ── Endpoints ────────────────────────────────────────────────────
+# ?? Endpoints ????????????????????????????????????????????????????
 
 @app.get("/")
 def root():
@@ -81,17 +85,24 @@ def understand_query(request: QueryRequest):
 
 
 @app.post("/recommend")
-def recommend(request: RecommendRequest):
+def recommend(
+    request: RecommendRequest,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """
     Full recommendation pipeline.
 
     Runs every agent in the correct order via the LangGraph
     orchestrator and returns the final structured response.
+    If authenticated via JWT, the verified user ID takes precedence over client body.
     """
+    # Derive identity securely from authenticated token if logged in
+    effective_user_id = current_user.id if current_user else request.user_id
+
     try:
         result = run_pipeline(
             raw_query=request.query,
-            user_id=request.user_id,
+            user_id=effective_user_id,
             top_k=request.top_k,
             previous_products=request.previous_products or None,
         )
@@ -105,4 +116,4 @@ def recommend(request: RecommendRequest):
                 "The recommendation pipeline encountered an error. "
                 "This may be a temporary issue with the AI service."
             ),
-        )
+        )

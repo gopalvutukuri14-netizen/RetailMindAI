@@ -1,109 +1,192 @@
-import json
-import sqlite3
-from pathlib import Path
+import logging
+from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
+import re
 
+from backend.database.session import SessionLocal
+from backend.database.models import User, UserPreference, ConversationMemory
 from .schema import UserProfile
 
+logger = logging.getLogger(__name__)
 
-DB_PATH = Path("data") / "memory.db"
-
-# Pre-seeded demo profiles -- inserted once, only if the table is empty,
-# so re-running the app during dev never overwrites manual test edits.
-DEFAULT_PROFILES = [
-    UserProfile(
-        user_id="budget_conscious",
-        typical_budget_max=10000,
-    ),
-    UserProfile(
-        user_id="camera_focused",
-        recurring_quality_tags=["good camera"],
-    ),
-    UserProfile(
-        user_id="samsung_loyalist",
-        preferred_brands=["Samsung"],
-    ),
+# Sensitive keywords that must never be stored in conversation memory
+SENSITIVE_PATTERNS = [
+    re.compile(r"password\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(r"token\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(r"otp\s*[:=]\s*\d+", re.IGNORECASE),
+    re.compile(r"bearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE),
 ]
+
+
+def _sanitize_text(text: str) -> str:
+    """Strip any potential authentication credentials, tokens or OTPs."""
+    sanitized = text
+    for pattern in SENSITIVE_PATTERNS:
+        sanitized = pattern.sub("[REDACTED]", sanitized)
+    return sanitized
 
 
 class MemoryAgent:
     """
-    Stores and retrieves per-user shopping preference profiles in SQLite.
+    Cloud PostgreSQL-backed Memory Agent.
 
-    Design choice: one table, one JSON blob column per user, rather than
-    a fully normalized schema. For a handful of demo profiles this is
-    simpler and sufficient; if this ever needs real querying across many
-    users (e.g. "find all users who prefer Samsung"), that's the point
-    to move to normalized columns -- not before.
+    Strict rules:
+    1. Authenticated users: Load and persist dynamic preferences from/to Cloud PostgreSQL.
+    2. Anonymous users: Return a neutral, empty profile. Never persist or share memory.
+    3. No hardcoded personas: Real users always start with fresh, neutral memory.
+    4. Multi-user isolation: Every query is strictly scoped to the authenticated user's UUID.
     """
 
-    def __init__(self, db_path: Path = DB_PATH):
-        self.db_path = db_path
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_db()
-        self._seed_defaults_if_empty()
-
-    def _connect(self):
-        return sqlite3.connect(self.db_path)
-
-    def _init_db(self):
-        with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS profiles (
-                    user_id TEXT PRIMARY KEY,
-                    profile_json TEXT NOT NULL
-                )
-                """
-            )
-
-    def _seed_defaults_if_empty(self):
-        with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM profiles").fetchone()[0]
-        if count == 0:
-            for profile in DEFAULT_PROFILES:
-                self.save_profile(profile)
+    def __init__(self, db_session_factory=SessionLocal):
+        self.session_factory = db_session_factory
 
     def get_profile(self, user_id: str) -> UserProfile:
         """
-        Returns the stored profile for user_id, or a fresh empty profile
-        if the user is unknown. An unknown user should never crash the
-        pipeline -- it just means no personalization signal is available
-        yet, which downstream agents (Ranking) can handle as "no
-        preferences known."
+        Retrieve the stored profile for user_id from Cloud PostgreSQL.
+        Returns a fresh neutral profile for anonymous, invalid, or new users.
         """
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT profile_json FROM profiles WHERE user_id = ?",
-                (user_id,),
-            ).fetchone()
+        if not user_id or user_id in ("anonymous", "null", "undefined"):
+            return UserProfile(user_id="anonymous")
 
-        if row is None:
-            return UserProfile(user_id=user_id)
-
-        data = json.loads(row[0])
-        return UserProfile(**data)
-
-    def save_profile(self, profile: UserProfile) -> None:
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO profiles (user_id, profile_json)
-                VALUES (?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET profile_json = excluded.profile_json
-                """,
-                (profile.user_id, profile.model_dump_json()),
+        session = self.session_factory()
+        try:
+            # Query user preference securely scoped to user_id
+            pref = (
+                session.query(UserPreference)
+                .filter(UserPreference.user_id == user_id)
+                .first()
             )
 
+            # Query the most recent conversation memory for context continuity
+            latest_memory = (
+                session.query(ConversationMemory)
+                .filter(ConversationMemory.user_id == user_id)
+                .order_by(ConversationMemory.created_at.desc())
+                .first()
+            )
 
-def demo():
-    agent = MemoryAgent()
+            recent_summary = latest_memory.context_summary if latest_memory else None
 
-    print("Known profile (samsung_loyalist):")
-    print(agent.get_profile("samsung_loyalist").model_dump_json(indent=2))
+            if not pref:
+                # Neutral empty profile for user with no saved preferences yet
+                return UserProfile(
+                    user_id=user_id,
+                    recent_context_summary=recent_summary,
+                )
 
-    print("\nUnknown profile (new_user_42) -- should be empty, not crash:")
-    print(agent.get_profile("new_user_42").model_dump_json(indent=2))
+            return UserProfile(
+                user_id=user_id,
+                preferred_brands=list(pref.preferred_brands or []),
+                excluded_brands=list(pref.excluded_brands or []),
+                typical_budget_min=pref.typical_budget_min,
+                typical_budget_max=pref.typical_budget_max,
+                recurring_quality_tags=list(pref.recurring_quality_tags or []),
+                preferred_categories=list(pref.preferred_categories or []),
+                recent_context_summary=recent_summary,
+            )
+        except Exception as exc:
+            logger.error(f"Error fetching profile for user {user_id}: {exc}")
+            # Safe fallback: return neutral profile rather than crashing the pipeline
+            return UserProfile(user_id=user_id)
+        finally:
+            session.close()
 
+    def update_preferences_from_interaction(
+        self,
+        user_id: str,
+        query_understanding: Any,
+        raw_query: str,
+    ) -> None:
+        """
+        Dynamically learn preferences from natural interaction.
+        Updates budget, quality priorities, and categories in PostgreSQL for authenticated user.
+        """
+        if not user_id or user_id in ("anonymous", "null", "undefined"):
+            return
 
-if __name__ == "__main__":
-    demo()
+        session = self.session_factory()
+        try:
+            pref = (
+                session.query(UserPreference)
+                .filter(UserPreference.user_id == user_id)
+                .first()
+            )
+
+            if not pref:
+                pref = UserPreference(
+                    user_id=user_id,
+                    preferred_categories=[],
+                    preferred_brands=[],
+                    excluded_brands=[],
+                    recurring_quality_tags=[],
+                )
+                session.add(pref)
+
+            # 1. Learn or update budget dynamically
+            # If the user stated a budget or modified it (e.g. "budget increased to 35000", "under 25000")
+            if hasattr(query_understanding, "budget_max") and query_understanding.budget_max is not None:
+                pref.typical_budget_max = float(query_understanding.budget_max)
+
+            if hasattr(query_understanding, "budget_min") and query_understanding.budget_min is not None:
+                pref.typical_budget_min = float(query_understanding.budget_min)
+
+            # 2. Learn quality priorities (e.g. "good camera", "long battery")
+            if hasattr(query_understanding, "quality_focus") and query_understanding.quality_focus:
+                quality_tag = str(query_understanding.quality_focus).strip().lower()
+                current_tags = list(pref.recurring_quality_tags or [])
+                if quality_tag and quality_tag not in current_tags:
+                    current_tags.append(quality_tag)
+                    pref.recurring_quality_tags = current_tags
+
+            # 3. Learn categories of recurring interest
+            if hasattr(query_understanding, "category") and query_understanding.category:
+                cat = str(query_understanding.category).strip()
+                current_cats = list(pref.preferred_categories or [])
+                if cat and cat not in current_cats:
+                    current_cats.append(cat)
+                    pref.preferred_categories = current_cats
+
+            pref.updated_at = datetime.now(timezone.utc)
+            session.commit()
+            logger.info(f"Updated preferences dynamically in PostgreSQL for user {user_id}")
+        except Exception as exc:
+            session.rollback()
+            logger.error(f"Failed to update preferences for user {user_id}: {exc}")
+        finally:
+            session.close()
+
+    def save_conversation_turn(
+        self,
+        user_id: str,
+        conversation_id: str,
+        query_text: str,
+        context_summary: str,
+        context_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Persist a conversation turn to PostgreSQL for authenticated users.
+        Ensures strict user scoping and data sanitization.
+        """
+        if not user_id or user_id in ("anonymous", "null", "undefined"):
+            return
+
+        session = self.session_factory()
+        try:
+            sanitized_query = _sanitize_text(query_text)
+            sanitized_summary = _sanitize_text(context_summary)
+
+            memory = ConversationMemory(
+                user_id=user_id,
+                conversation_id=conversation_id or f"conv_{user_id}",
+                query_text=sanitized_query,
+                context_summary=sanitized_summary,
+                context_data=context_data or {},
+            )
+            session.add(memory)
+            session.commit()
+            logger.info(f"Persisted conversation memory for user {user_id}")
+        except Exception as exc:
+            session.rollback()
+            logger.error(f"Failed to persist conversation memory for user {user_id}: {exc}")
+        finally:
+            session.close()

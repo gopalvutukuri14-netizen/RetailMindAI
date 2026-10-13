@@ -1,18 +1,41 @@
+# Environment secrets
 .env
-.venv/
-__pycache__/
-*.pyc
+.env.*
+!.env.example
 
-
+# data
 data/
 
-# IDE / OS clutter
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local databases and database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Local editor and operating system files
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db
-
-# Jupyter notebook checkpoints
-.ipynb_checkpoints/
-
-# Frontend (once you get to React) -- huge, regenerable via npm install
-frontend/node_modules/
