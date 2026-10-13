@@ -2,12 +2,19 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
 
 export default function OtpVerificationForm() {
-  const { verifyEmail, resendOtp, pendingEmail, setAuthModalTab, authError, setAuthError } = useAuth();
+  const { verifyEmail, resendOtp, pendingEmail, setPendingEmail, setAuthModalTab, authError, setAuthError } = useAuth();
+  const [emailInput, setEmailInput] = useState(pendingEmail || "");
   const [otp, setOtp] = useState("");
   const [countdown, setCountdown] = useState(60);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(null);
+
+  useEffect(() => {
+    if (pendingEmail) {
+      setEmailInput(pendingEmail);
+    }
+  }, [pendingEmail]);
 
   // 60-second countdown for resend
   useEffect(() => {
@@ -18,8 +25,14 @@ export default function OtpVerificationForm() {
     return () => clearInterval(timer);
   }, [countdown]);
 
+  const activeEmail = (pendingEmail || emailInput).trim();
+
   async function handleVerify(e) {
     e.preventDefault();
+    if (!activeEmail) {
+      setAuthError("Please enter the email address for verification.");
+      return;
+    }
     const cleanOtp = otp.trim();
     if (cleanOtp.length !== 6) {
       setAuthError("Please enter the complete 6-digit verification code.");
@@ -29,7 +42,7 @@ export default function OtpVerificationForm() {
     setIsSubmitting(true);
     setResendSuccess(null);
     try {
-      await verifyEmail({ email: pendingEmail, otp: cleanOtp });
+      await verifyEmail({ email: activeEmail, otp: cleanOtp });
       // Verification successful -> AuthContext closes modal & logs user in
     } catch {
       // Error handled in AuthContext
@@ -39,15 +52,20 @@ export default function OtpVerificationForm() {
   }
 
   async function handleResend() {
+    if (!activeEmail) {
+      setAuthError("Please enter your email address to receive a code.");
+      return;
+    }
     if (countdown > 0 || isResending) return;
     setIsResending(true);
     setResendSuccess(null);
+    setAuthError(null);
     try {
-      const res = await resendOtp({ email: pendingEmail, purpose: "signup_verify" });
+      const res = await resendOtp({ email: activeEmail, purpose: "signup_verify" });
       setCountdown(60);
-      setResendSuccess(res.message || "A fresh verification code was sent to your email.");
+      setResendSuccess(res.message || "A fresh verification code request was accepted.");
     } catch {
-      // Error handled in AuthContext
+      // Error handled in AuthContext; countdown remains 0 so user can retry
     } finally {
       setIsResending(false);
     }
@@ -64,9 +82,30 @@ export default function OtpVerificationForm() {
         </div>
         <h2 id="auth-dialog-title" className="auth-form__title">Verify Your Email</h2>
         <p className="auth-form__subtitle">
-          We sent a 6-digit code to <strong>{pendingEmail || "your email"}</strong>. Enter it below to activate your account.
+          Enter the 6-digit verification code for <strong>{activeEmail || "your email"}</strong> to activate your account.
         </p>
       </div>
+
+      {!pendingEmail && (
+        <div className="auth-form__field">
+          <label htmlFor="otp-email-input" className="auth-form__label">
+            Email Address
+          </label>
+          <input
+            id="otp-email-input"
+            type="email"
+            className="auth-form__input"
+            placeholder="e.g. alex@example.com"
+            value={emailInput}
+            onChange={(e) => {
+              setEmailInput(e.target.value);
+              setPendingEmail(e.target.value);
+            }}
+            required
+            disabled={isSubmitting || isResending}
+          />
+        </div>
+      )}
 
       {authError && (
         <div className="auth-form__error-banner" role="alert">

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 
 export default function SignupForm() {
-  const { signup, setAuthModalTab, authError, setAuthError } = useAuth();
+  const { signup, setAuthModalTab, authError, setAuthError, setPendingEmail } = useAuth();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,7 +75,50 @@ export default function SignupForm() {
             <line x1="12" y1="8" x2="12" y2="12" />
             <line x1="12" y1="16" x2="12.01" y2="16" />
           </svg>
-          <span>{authError}</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <span>{authError}</span>
+            {authError.toLowerCase().includes("account created") && (
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#2563eb",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  padding: 0,
+                  fontSize: "0.85rem",
+                  textDecoration: "underline",
+                }}
+                onClick={() => {
+                  setPendingEmail(email.trim());
+                  setAuthModalTab("verify_otp");
+                }}
+              >
+                Go to Verification Form &rarr;
+              </button>
+            )}
+            {authError.toLowerCase().includes("already exists") && (
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#2563eb",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  padding: 0,
+                  fontSize: "0.85rem",
+                  textDecoration: "underline",
+                }}
+                onClick={() => setAuthModalTab("login")}
+              >
+                Sign In Instead &rarr;
+              </button>
+            )}
+          </div>
         </div>
       )}
 

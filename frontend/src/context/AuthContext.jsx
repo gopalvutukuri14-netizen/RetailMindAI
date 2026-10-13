@@ -82,9 +82,9 @@ export function AuthProvider({ children }) {
 
   const signup = useCallback(async ({ username, email, password, confirm_password }) => {
     setAuthError(null);
+    setPendingEmail(email);
     try {
       const res = await authApi.signup({ username, email, password, confirm_password });
-      setPendingEmail(email);
       setAuthModalTab("verify_otp");
       return res;
     } catch (err) {

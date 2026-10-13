@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from backend.database.session import get_db
 from backend.database.models import User, OTPChallenge, UserPreference
@@ -51,18 +52,50 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
             detail=msg,
         )
 
+    # 1. Check existing user by email
     existing_user_by_email = db.query(User).filter(User.email == req.email).first()
     if existing_user_by_email:
         if existing_user_by_email.is_verified:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="An account with this email address already exists.",
+                detail="An account with this email address already exists. Please sign in or reset your password.",
             )
         else:
+            # Existing unverified user retrying signup
+            # Check if username is taken by a different user
+            existing_user_by_name = db.query(User).filter(User.username == req.username).first()
+            if existing_user_by_name and existing_user_by_name.id != existing_user_by_email.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username is already taken.",
+                )
+
+            # Check cooldown if an OTP was already successfully sent recently
+            latest_challenge = (
+                db.query(OTPChallenge)
+                .filter(OTPChallenge.email == req.email, OTPChallenge.purpose == "signup_verify")
+                .order_by(OTPChallenge.created_at.desc())
+                .first()
+            )
+            if latest_challenge:
+                now = datetime.now(timezone.utc)
+                created = latest_challenge.created_at
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                elapsed = (now - created).total_seconds()
+                if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+                    wait_seconds = int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"Please wait {wait_seconds} second(s) before requesting another verification code.",
+                    )
+
+            # Update unverified user's credentials
             existing_user_by_email.username = req.username
             existing_user_by_email.password_hash = hash_password(req.password)
             user = existing_user_by_email
     else:
+        # Check if username is taken
         existing_user_by_name = db.query(User).filter(User.username == req.username).first()
         if existing_user_by_name:
             raise HTTPException(
@@ -80,18 +113,56 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
         pref = UserPreference(user=user)
         db.add(pref)
 
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        # Handle concurrent signup race condition
+        existing_user_by_email = db.query(User).filter(User.email == req.email).first()
+        if existing_user_by_email and existing_user_by_email.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="An account with this email address already exists. Please sign in or reset your password.",
+            )
+        user = existing_user_by_email
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username is already taken.",
+            )
 
+    # 2. Generate new OTP
+    plain_otp = generate_otp()
+    hashed = hash_otp(plain_otp, salt=req.email)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    # 3. Attempt email delivery via Brevo FIRST
+    email_result = send_signup_verification_otp(req.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
+
+    if not email_result:
+        # Email delivery failed: do not invalidate prior valid OTP and do not commit unsent challenge
+        http_status = status.HTTP_502_BAD_GATEWAY
+        if email_result.status_code == 429:
+            http_status = status.HTTP_429_TOO_MANY_REQUESTS
+        elif email_result.status_code == 504:
+            http_status = status.HTTP_504_GATEWAY_TIMEOUT
+
+        error_detail = (
+            f"Account created, but verification email could not be sent: {email_result.user_message} "
+            "Please try requesting a verification code later."
+        )
+        raise HTTPException(
+            status_code=http_status,
+            detail=error_detail,
+        )
+
+    # 4. Email delivery succeeded: invalidate older unused challenges and commit new one
     db.query(OTPChallenge).filter(
         OTPChallenge.email == req.email,
         OTPChallenge.purpose == "signup_verify",
         OTPChallenge.is_used == False,
     ).update({"is_used": True})
-
-    plain_otp = generate_otp()
-    hashed = hash_otp(plain_otp, salt=req.email)
-    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
     challenge = OTPChallenge(
         user_id=user.id,
@@ -104,11 +175,10 @@ def signup(req: SignupRequest, db: Session = Depends(get_db)):
     db.add(challenge)
     db.commit()
 
-    send_signup_verification_otp(req.email, req.username, plain_otp, OTP_EXPIRY_MINUTES)
-
     return {
-        "message": "Signup successful. Please enter the verification code sent to your email.",
+        "message": "Signup successful. Verification code request accepted. Please enter the verification code sent to your email.",
         "email": req.email,
+        "email_status": "accepted",
     }
 
 
@@ -194,6 +264,13 @@ def resend_otp(req: ResendOtpRequest, db: Session = Depends(get_db)):
     if not user:
         return {"message": "If this email is registered, a new verification code has been sent."}
 
+    # Reject signup_verify resends for accounts that are already verified
+    if req.purpose == "signup_verify" and user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is already verified. Please sign in.",
+        )
+
     latest = (
         db.query(OTPChallenge)
         .filter(OTPChallenge.email == req.email, OTPChallenge.purpose == req.purpose)
@@ -214,15 +291,35 @@ def resend_otp(req: ResendOtpRequest, db: Session = Depends(get_db)):
                 detail=f"Please wait {wait_seconds} second(s) before requesting another code.",
             )
 
+    plain_otp = generate_otp()
+    hashed = hash_otp(plain_otp, salt=req.email)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    # Attempt email delivery via Brevo FIRST
+    if req.purpose == "signup_verify":
+        email_result = send_signup_verification_otp(req.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
+    else:
+        email_result = send_password_reset_otp(req.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
+
+    if not email_result:
+        # Delivery failed: do NOT invalidate previous valid OTP and do NOT commit unsent challenge
+        http_status = status.HTTP_502_BAD_GATEWAY
+        if email_result.status_code == 429:
+            http_status = status.HTTP_429_TOO_MANY_REQUESTS
+        elif email_result.status_code == 504:
+            http_status = status.HTTP_504_GATEWAY_TIMEOUT
+
+        raise HTTPException(
+            status_code=http_status,
+            detail=f"Failed to send verification email: {email_result.user_message}",
+        )
+
+    # Delivery succeeded: invalidate older unused challenges and commit new one
     db.query(OTPChallenge).filter(
         OTPChallenge.email == req.email,
         OTPChallenge.purpose == req.purpose,
         OTPChallenge.is_used == False,
     ).update({"is_used": True})
-
-    plain_otp = generate_otp()
-    hashed = hash_otp(plain_otp, salt=req.email)
-    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
     challenge = OTPChallenge(
         user_id=user.id,
@@ -234,11 +331,6 @@ def resend_otp(req: ResendOtpRequest, db: Session = Depends(get_db)):
     )
     db.add(challenge)
     db.commit()
-
-    if req.purpose == "signup_verify":
-        send_signup_verification_otp(req.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
-    else:
-        send_password_reset_otp(req.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
 
     return {"message": "A new verification code has been sent to your email."}
 
@@ -301,15 +393,50 @@ def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     if not user or not user.email:
         return {"message": safe_msg}
 
+    # Check cooldown for password_reset
+    latest = (
+        db.query(OTPChallenge)
+        .filter(OTPChallenge.email == user.email, OTPChallenge.purpose == "password_reset")
+        .order_by(OTPChallenge.created_at.desc())
+        .first()
+    )
+    if latest:
+        now = datetime.now(timezone.utc)
+        created = latest.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        elapsed = (now - created).total_seconds()
+        if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+            wait_seconds = int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Please wait {wait_seconds} second(s) before requesting another reset code.",
+            )
+
+    plain_otp = generate_otp()
+    hashed = hash_otp(plain_otp, salt=user.email)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
+
+    # Attempt email delivery via Brevo FIRST
+    email_result = send_password_reset_otp(user.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
+    if not email_result:
+        http_status = status.HTTP_502_BAD_GATEWAY
+        if email_result.status_code == 429:
+            http_status = status.HTTP_429_TOO_MANY_REQUESTS
+        elif email_result.status_code == 504:
+            http_status = status.HTTP_504_GATEWAY_TIMEOUT
+
+        raise HTTPException(
+            status_code=http_status,
+            detail=f"Failed to send password reset email: {email_result.user_message}",
+        )
+
+    # Invalidate older password_reset challenges and commit new one
     db.query(OTPChallenge).filter(
         OTPChallenge.email == user.email,
         OTPChallenge.purpose == "password_reset",
         OTPChallenge.is_used == False,
     ).update({"is_used": True})
-
-    plain_otp = generate_otp()
-    hashed = hash_otp(plain_otp, salt=user.email)
-    expires = datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRY_MINUTES)
 
     challenge = OTPChallenge(
         user_id=user.id,
@@ -322,7 +449,6 @@ def forgot_password(req: ForgotPasswordRequest, db: Session = Depends(get_db)):
     db.add(challenge)
     db.commit()
 
-    send_password_reset_otp(user.email, user.username, plain_otp, OTP_EXPIRY_MINUTES)
     return {"message": safe_msg}
 
 
