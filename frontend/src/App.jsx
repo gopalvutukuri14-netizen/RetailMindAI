@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from "react";
+import { useAuth } from "./context/AuthContext";
 import ProfileSelector from "./components/ProfileSelector";
+import AuthModal from "./components/auth/AuthModal";
 import CategoryBar, { CATEGORIES } from "./components/CategoryBar";
 import ChatWindow from "./components/ChatWindow";
 import ChatInput from "./components/ChatInput";
@@ -23,7 +25,7 @@ const WELCOME_MESSAGE = {
 };
 
 export default function App() {
-  const [profileId, setProfileId] = useState("anonymous");
+  const { user } = useAuth();
   const [activeCategory, setActiveCategory] = useState("all");
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [isLoading, setIsLoading] = useState(false);
@@ -119,7 +121,7 @@ export default function App() {
       try {
         const data = await getRecommendations(
           query,
-          profileId,
+          user?.id || "anonymous",
           5,
           lastProductsRef.current
         );
@@ -144,7 +146,7 @@ export default function App() {
         setIsLoading(false);
       }
     },
-    [profileId]
+    [user?.id]
   );
 
   const handleFollowUp = useCallback(
@@ -200,10 +202,7 @@ export default function App() {
                 </button>
               )}
 
-              <ProfileSelector
-                activeProfileId={profileId}
-                onProfileChange={setProfileId}
-              />
+              <ProfileSelector />
             </div>
           </div>
 
@@ -232,6 +231,9 @@ export default function App() {
           <ChatInput onSend={sendQuery} disabled={isLoading} />
         </div>
       </div>
+
+      {/* ── Authentication Modal (Sign In / Signup / OTP / Reset) ── */}
+      <AuthModal />
     </div>
   );
 }

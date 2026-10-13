@@ -21,13 +21,13 @@ def override_get_db():
     finally:
         db.close()
 
-app.dependency_overrides[get_db] = override_get_db
-
 @pytest.fixture(autouse=True)
 def setup_and_teardown_db():
     Base.metadata.create_all(bind=test_engine)
+    app.dependency_overrides[get_db] = override_get_db
     MOCK_SENT_EMAILS.clear()
     yield
+    app.dependency_overrides.pop(get_db, None)
     Base.metadata.drop_all(bind=test_engine)
 
 @pytest.fixture
@@ -183,3 +183,104 @@ def test_forgot_and_reset_password_flow(client):
     res_old_token = client.get("/auth/me", headers={"Authorization": f"Bearer {old_jwt}"})
     assert res_old_token.status_code == 401
     assert "revoked" in res_old_token.json()["detail"].lower()
+
+
+def test_resend_otp_rate_limiting_and_cooldown(client):
+    """Enforces 60-second cooldown on OTP resend requests (HTTP 429)."""
+    # 1. Signup to create first OTP
+    client.post("/auth/signup", json={
+        "username": "cooldown_user",
+        "email": "cooldown@example.com",
+        "password": "Password123",
+        "confirm_password": "Password123",
+    })
+
+    # 2. Immediate resend should trigger 429 Too Many Requests
+    res_immediate = client.post("/auth/resend-otp", json={
+        "email": "cooldown@example.com",
+        "purpose": "signup_verify",
+    })
+    assert res_immediate.status_code == 429
+    assert "wait" in res_immediate.json()["detail"].lower()
+
+
+def test_otp_max_attempts_exceeded(client):
+    """After max attempts (5), challenge is invalidated to prevent brute force."""
+    client.post("/auth/signup", json={
+        "username": "lockout_user",
+        "email": "lockout@example.com",
+        "password": "Password123",
+        "confirm_password": "Password123",
+    })
+
+    # Submit wrong OTP 5 times
+    for i in range(5):
+        res = client.post("/auth/verify-email", json={
+            "email": "lockout@example.com",
+            "otp": "000000",
+        })
+        assert res.status_code == 400
+
+    # 6th attempt should report maximum attempts exceeded
+    res_locked = client.post("/auth/verify-email", json={
+        "email": "lockout@example.com",
+        "otp": "000000",
+    })
+    assert res_locked.status_code == 400
+    assert "maximum" in res_locked.json()["detail"].lower() or "no pending" in res_locked.json()["detail"].lower()
+
+
+def test_expired_otp_rejected(client):
+    """Expired OTP challenge returns 400."""
+    db = TestingSessionLocal()
+    user = User(
+        username="expired_user",
+        email="expired@example.com",
+        password_hash=hash_password("Password123"),
+        is_verified=False,
+    )
+    db.add(user)
+    db.commit()
+
+    # Create challenge that expired 2 minutes ago
+    expired_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    challenge = OTPChallenge(
+        user_id=user.id,
+        email="expired@example.com",
+        purpose="signup_verify",
+        otp_hash="somehash",
+        expires_at=expired_time,
+        max_attempts=5,
+    )
+    db.add(challenge)
+    db.commit()
+    db.close()
+
+    res = client.post("/auth/verify-email", json={
+        "email": "expired@example.com",
+        "otp": "123456",
+    })
+    assert res.status_code == 400
+    assert "expired" in res.json()["detail"].lower()
+
+
+def test_account_deactivated_forbidden(client):
+    """Deactivated accounts cannot log in (HTTP 403)."""
+    db = TestingSessionLocal()
+    user = User(
+        username="inactive_user",
+        email="inactive@example.com",
+        password_hash=hash_password("Password123"),
+        is_verified=True,
+        is_active=False,
+    )
+    db.add(user)
+    db.commit()
+    db.close()
+
+    res = client.post("/auth/login", json={
+        "username_or_email": "inactive_user",
+        "password": "Password123",
+    })
+    assert res.status_code == 403
+    assert "deactivated" in res.json()["detail"].lower()

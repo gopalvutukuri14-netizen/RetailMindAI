@@ -1,0 +1,341 @@
+/* ==========================================================================
+   SmartPick Authentication Modal & Form Styles
+   ========================================================================== */
+
+.auth-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background-color: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: authFadeIn 0.2s ease-out;
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.auth-modal-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.12),
+              0 8px 10px -6px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  animation: authScaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes authScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.auth-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.auth-modal-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.auth-modal-body {
+  padding: 28px 24px;
+}
+
+/* --- Form Styles --- */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-form__header {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.auth-form__badge-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  border-radius: 14px;
+  background: #f0fdfa;
+  color: #0d9488;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-form__badge-icon--success {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.auth-form__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 6px 0;
+}
+
+.auth-form__subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* --- Error & Success Banners --- */
+.auth-form__error-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.auth-form__error-banner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.auth-form__success-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.auth-form__success-banner svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* --- Fields --- */
+.auth-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.auth-form__label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auth-form__label {
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.auth-form__hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.auth-form__input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-form__input {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.925rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.auth-form__input:focus {
+  border-color: #0d9488;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+
+.auth-form__input--otp {
+  font-family: monospace;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.5rem;
+  text-align: center;
+  padding: 12px;
+}
+
+.auth-form__toggle-pw {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.auth-form__toggle-pw:hover {
+  color: #0f172a;
+}
+
+/* --- Buttons --- */
+.auth-form__link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 0.775rem;
+  font-weight: 500;
+  color: #0d9488;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.auth-form__link-btn:hover {
+  text-decoration: underline;
+}
+
+.auth-form__submit-btn {
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: 8px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 4px;
+}
+
+.auth-form__submit-btn:hover:not(:disabled) {
+  background: #115e59;
+}
+
+.auth-form__submit-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.auth-form__submit-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.auth-form__resend-area {
+  text-align: center;
+  font-size: 0.825rem;
+}
+
+.auth-form__countdown-text {
+  color: #94a3b8;
+}
+
+.auth-form__resend-btn {
+  background: transparent;
+  border: none;
+  color: #0d9488;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.auth-form__resend-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.auth-form__resend-btn:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.auth-form__footer {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.auth-form__switch-btn {
+  background: transparent;
+  border: none;
+  color: #0f766e;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+}
+
+.auth-form__switch-btn:hover {
+  text-decoration: underline;
+}
+
+/* --- Spinner --- */
+.auth-form__spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: authSpin 0.6s linear infinite;
+}
+
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

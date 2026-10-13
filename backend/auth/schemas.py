@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
 
@@ -91,14 +91,13 @@ class ResetPasswordRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     username: str
     email: str
     is_verified: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TokenResponse(BaseModel):

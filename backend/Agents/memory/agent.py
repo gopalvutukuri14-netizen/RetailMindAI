@@ -106,6 +106,12 @@ class MemoryAgent:
 
         session = self.session_factory()
         try:
+            # Only persist preferences for users who exist in the database
+            user_exists = session.query(User.id).filter(User.id == user_id).first()
+            if not user_exists:
+                logger.debug(f"User {user_id} does not exist in users table. Skipping preference update.")
+                return
+
             pref = (
                 session.query(UserPreference)
                 .filter(UserPreference.user_id == user_id)
@@ -172,6 +178,12 @@ class MemoryAgent:
 
         session = self.session_factory()
         try:
+            # Only persist conversation memory for users who exist in the database
+            user_exists = session.query(User.id).filter(User.id == user_id).first()
+            if not user_exists:
+                logger.debug(f"User {user_id} does not exist in users table. Skipping conversation memory save.")
+                return
+
             sanitized_query = _sanitize_text(query_text)
             sanitized_summary = _sanitize_text(context_summary)
 
