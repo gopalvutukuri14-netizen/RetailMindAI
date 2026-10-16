@@ -127,8 +127,8 @@ class ResponseAgent:
             )
             additional_information = ""
 
-        generated_summary = summary
-        generated_additional = additional_information
+        generated_summary = (summary or "").replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
+        generated_additional = (additional_information or "").replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
 
         # Match explanations by ASIN, not by list position.
         explanations_by_asin = {
@@ -249,7 +249,7 @@ Key factors: {explanation.key_factors}
         )
 
         return f"""
-You are the Response Generation Agent for RetailMind AI.
+You are the Response Generation Agent for SmartPick.
 
 Your job is to convert the outputs of the previous agents
 into a clear, concise, structured response for the shopper.

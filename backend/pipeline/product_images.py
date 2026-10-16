@@ -1,5 +1,5 @@
 """
-Product image lookup service for RetailMind AI.
+Product image lookup service for SmartPick.
 
 Extracts real product image URLs from data/products_master.parquet without
 modifying ChromaDB, embeddings, or ranking weights.

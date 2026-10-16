@@ -39,7 +39,10 @@ class FollowUpAgent:
             response = call_with_retry(_call, context="FollowUpAgent")
             if not response.text:
                 raise RuntimeError("FollowUpAgent: empty Gemini response")
-            return FollowUpResult.model_validate_json(response.text)
+            validated = FollowUpResult.model_validate_json(response.text)
+            for s in validated.suggestions:
+                s.suggestion_text = s.suggestion_text.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
+            return validated
         except Exception as exc:
             logger.warning(
                 "FollowUpAgent: falling back to static suggestions after error: %s",
@@ -82,7 +85,7 @@ class FollowUpAgent:
                             for p in ranking_result.products)
 
         return f"""
-You are the Follow-up Agent for RetailMind AI. Based on the search
+You are the Follow-up Agent for SmartPick. Based on the search
 results below, suggest 2-4 natural next questions or actions the user
 might want -- things that would genuinely help them decide, not generic
 filler.

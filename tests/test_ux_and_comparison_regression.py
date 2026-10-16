@@ -17,7 +17,7 @@ from backend.orchestrator.comparison_helper import (
     select_two_products_to_compare,
     build_category_comparison_data,
 )
-from backend.orchestrator.nodes import context_response_node
+from backend.orchestrator.nodes import context_response_node, general_response_node, out_of_scope_node
 from backend.orchestrator.state import PipelineState
 
 
@@ -264,3 +264,67 @@ def test_timing_logs_do_not_leak_secrets(caplog):
             assert "gemini_api_key" not in msg.lower()
             assert "password" not in msg.lower()
             assert "bearer" not in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# 5. SmartPick Assistant Introduction & Greeting Regression Tests
+# ---------------------------------------------------------------------------
+
+def test_general_response_node_greeting_uses_smartpick():
+    """Generic greeting directly in general_response_node returns the canonical SmartPick introduction."""
+    state: PipelineState = {
+        "raw_query": "hello",
+        "user_id": "guest_user",
+        "top_k": 5,
+    }
+    result_state = general_response_node(state)
+    assert "response_result" in result_state
+    res: ResponseResult = result_state["response_result"]
+    assert "SmartPick" in res.summary
+    assert "RetailMind" not in res.summary
+    assert "Hello! I am SmartPick, your AI shopping assistant" in res.summary
+
+
+def test_out_of_scope_node_uses_smartpick():
+    """Out-of-scope response introduces supported categories using SmartPick."""
+    mock_qu = MagicMock()
+    mock_qu.category = None
+
+    state: PipelineState = {
+        "raw_query": "can I buy real estate?",
+        "user_id": "test_user",
+        "top_k": 5,
+        "query_understanding": mock_qu,
+    }
+    result_state = out_of_scope_node(state)
+    assert "response_result" in result_state
+    res: ResponseResult = result_state["response_result"]
+    assert "SmartPick currently supports six product categories" in res.summary
+    assert "RetailMind" not in res.summary
+
+
+def test_generic_greeting_recommend_endpoint_guest_user(client):
+    """POST /recommend with greeting returns SmartPick introduction for guest user."""
+    response = client.post("/recommend", json={"query": "hello", "user_id": "anonymous"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "summary" in data
+    assert "SmartPick" in data["summary"]
+    assert "RetailMind" not in data["summary"]
+    assert "Hello! I am SmartPick, your AI shopping assistant" in data["summary"]
+
+
+def test_generic_greeting_recommend_endpoint_authenticated_user(client):
+    """POST /recommend with greeting returns SmartPick introduction for authenticated user."""
+    from backend.auth.security import create_access_token
+    token = create_access_token(user_id="auth_shopper_1", username="shopper1", email="shopper1@example.com")
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = client.post("/recommend", headers=headers, json={"query": "hi", "user_id": "anonymous"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "summary" in data
+    assert "SmartPick" in data["summary"]
+    assert "RetailMind" not in data["summary"]
+    assert "Hello! I am SmartPick, your AI shopping assistant" in data["summary"]
+

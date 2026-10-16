@@ -489,7 +489,7 @@ def process_chunk(chunk, products):
 # ============================================================
 
 print("=" * 70)
-print("RETAILMIND AI - FULL REVIEW SENTIMENT PROCESSING")
+print("SMARTPICK - FULL REVIEW SENTIMENT PROCESSING")
 print("=" * 70)
 
 print("\nLoading products...")

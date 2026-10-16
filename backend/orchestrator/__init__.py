@@ -1,5 +1,5 @@
 """
-RetailMind AI — LangGraph Orchestrator
+SmartPick — LangGraph Orchestrator
 
 Exposes the compiled pipeline and its entry point for use by the
 backend API and direct testing.

@@ -1,5 +1,5 @@
 """
-RetailMind AI - BGE-M3 Product Embedding Pipeline
+SmartPick - BGE-M3 Product Embedding Pipeline
 
 Reads:  data/products_master.parquet  (embedding_text + parent_asin columns)
 Writes: data/product_embeddings.npy          (float32 memmap, shape [N, 1024])
@@ -120,7 +120,7 @@ def load_progress(total_rows: int) -> int:
 def main() -> None:
 
     print("=" * 70)
-    print("RETAILMIND AI - BGE-M3 PRODUCT EMBEDDINGS")
+    print("SMARTPICK - BGE-M3 PRODUCT EMBEDDINGS")
     print("=" * 70)
 
     # --------------------------------------------------------

@@ -19,7 +19,7 @@ from backend.Agents.response import ResponseResult
 
 class PipelineState(TypedDict, total=False):
     """
-    Full state flowing through the RetailMind AI pipeline.
+    Full state flowing through the SmartPick pipeline.
 
     Fields are populated incrementally as each node executes.
     ``total=False`` means every key is optional at construction time —

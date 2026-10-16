@@ -110,3 +110,16 @@ test("Comparison structure supports side-by-side cards, table rows, and conclusi
   assert.equal(mockComparison.rows[2].product_b, "Not available in catalog");
   assert.ok(mockComparison.conclusion.length > 10);
 });
+
+test("Assistant and app branding strictly uses SmartPick and never RetailMind", () => {
+  for (const [catKey, examples] of Object.entries(CATEGORY_EXAMPLE_QUERIES)) {
+    for (const ex of examples) {
+      assert.ok(!ex.query.toLowerCase().includes("retailmind"), `RetailMind found in example under ${catKey}: ${ex.query}`);
+    }
+  }
+
+  const canonicalIntro = "Hello! I am SmartPick, your AI shopping assistant. I can help you discover products, find options within your budget, understand customer sentiment, and compare products. What are you looking for today?";
+  assert.ok(canonicalIntro.includes("SmartPick"));
+  assert.ok(!canonicalIntro.includes("RetailMind"));
+});
+

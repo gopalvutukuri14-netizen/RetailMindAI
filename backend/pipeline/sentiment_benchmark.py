@@ -443,7 +443,7 @@ def sentiment_label(score):
 # ============================================================
 
 print("=" * 70)
-print("RETAILMIND AI - ASPECT SENTIMENT 20K BALANCED BENCHMARK")
+print("SMARTPICK - ASPECT SENTIMENT 20K BALANCED BENCHMARK")
 print("=" * 70)
 
 

@@ -1,5 +1,5 @@
 """
-Live FastAPI Endpoints Verification Script for RetailMind AI.
+Live FastAPI Endpoints Verification Script for SmartPick.
 
 Executes real HTTP requests via TestClient(app) without mocks:
 1. GET /
@@ -24,7 +24,7 @@ from backend.main import app
 
 def run_live_verification():
     print("=" * 70)
-    print("RetailMind AI - Live FastAPI Endpoint Smoke Verification")
+    print("SmartPick - Live FastAPI Endpoint Smoke Verification")
     print("=" * 70)
 
     client = TestClient(app)

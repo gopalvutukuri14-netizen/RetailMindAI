@@ -108,6 +108,11 @@ class XAIAgent:
             ranking_result.products,
         ):
             explanation.asin = ranked_product.asin
+            if explanation.explanation:
+                explanation.explanation = explanation.explanation.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
+
+        if result.query_summary:
+            result.query_summary = result.query_summary.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
 
         return result
 
@@ -158,7 +163,7 @@ Pre-computed reasons:
 
         # Prompt tells Gemini exactly what it can and cannot do
         return f"""
-You are the Explainability (XAI) Agent for RetailMind AI.
+You are the Explainability (XAI) Agent for SmartPick.
 
 Your job is to convert the structured ranking data into
 clear and trustworthy explanations for the shopper.

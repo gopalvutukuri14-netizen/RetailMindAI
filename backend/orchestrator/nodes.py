@@ -436,8 +436,29 @@ def general_response_node(state: PipelineState) -> dict:
     client = _get_gemini_client()
     raw_query = state["raw_query"]
 
-    prompt = f"""
-You are RetailMind AI, a retail product recommendation assistant.
+    DEFAULT_SMARTPICK_GREETING = (
+        "Hello! I am SmartPick, your AI shopping assistant. "
+        "I can help you discover products, find options within your budget, "
+        "understand customer sentiment, and compare products. "
+        "What are you looking for today?"
+    )
+
+    cleaned_query = raw_query.strip().lower().strip("!.,?").strip()
+    generic_greetings = {
+        "hello", "hi", "hey", "greetings",
+        "who are you", "what is your name", "introduce yourself",
+        "what can you do", "help", "hello there", "good morning", "good afternoon", "good evening",
+    }
+
+    if cleaned_query in generic_greetings:
+        summary = DEFAULT_SMARTPICK_GREETING
+    else:
+        prompt = f"""
+You are SmartPick, an AI shopping assistant.
+
+Whenever you introduce yourself or greet the user, always identify yourself as SmartPick.
+Canonical greeting and introduction:
+"Hello! I am SmartPick, your AI shopping assistant. I can help you discover products, find options within your budget, understand customer sentiment, and compare products. What are you looking for today?"
 
 Our current catalog supports these categories:
 - Cell Phones & Accessories
@@ -450,31 +471,35 @@ Our current catalog supports these categories:
 The user said:
 {raw_query}
 
-This is a general question rather than a product search.
+This is a general question or greeting rather than a product search.
 
 Instructions:
-1. Respond naturally and helpfully.
-2. Answer general questions concisely.
-3. Do not invent catalog products, prices, or availability.
-4. Do not generate product recommendations for this request.
-5. Keep the response to 1-3 sentences.
+1. If the user is greeting you (e.g. "hello", "hi", "hey"), asking who you are, or asking how you can help, respond with:
+"Hello! I am SmartPick, your AI shopping assistant. I can help you discover products, find options within your budget, understand customer sentiment, and compare products. What are you looking for today?"
+2. Respond naturally and helpfully. Always identify as SmartPick if naming the assistant or service. Never use the name RetailMind AI.
+3. Answer general questions concisely.
+4. Do not invent catalog products, prices, or availability.
+5. Do not generate product recommendations for this request.
+6. Keep the response to 1-3 sentences.
 """
 
-    def _call():
-        return client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.5,
-            ),
-        )
+        def _call():
+            return client.models.generate_content(
+                model="gemini-3.5-flash-lite",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.5,
+                ),
+            )
 
-    try:
-        response = call_with_retry(_call, context="general_response_node")
-        summary = (response.text or "").strip() or "How can I help with your shopping today?"
-    except Exception as exc:
-        logger.warning("general_response_node: Gemini unavailable: %s", exc)
-        summary = "How can I help with your shopping today?"
+        try:
+            response = call_with_retry(_call, context="general_response_node")
+            summary = (response.text or "").strip() or DEFAULT_SMARTPICK_GREETING
+        except Exception as exc:
+            logger.warning("general_response_node: Gemini unavailable: %s", exc)
+            summary = DEFAULT_SMARTPICK_GREETING
+
+        summary = summary.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
 
     result = ResponseResult(
         summary=summary,
@@ -505,7 +530,7 @@ def out_of_scope_node(state: PipelineState) -> dict:
     result = ResponseResult(
         summary=(
             f"You're looking for products in {category}. "
-            "RetailMind AI currently supports six product categories: "
+            "SmartPick currently supports six product categories: "
             "Cell Phones & Accessories, Electronics, Home & Kitchen, "
             "Clothing, Shoes & Jewelry, Office Products, and "
             "Sports & Outdoors. I couldn't identify your requested "
@@ -580,7 +605,7 @@ def context_response_node(state: PipelineState) -> dict:
         )
 
     prompt = f"""
-You are RetailMind AI, a retail product recommendation assistant.
+You are SmartPick, an AI retail product recommendation assistant.
 
 Previously returned products:
 
@@ -708,6 +733,11 @@ Rules:
                 )
                 if "image_url" in match:
                     recommendation.image_url = match.get("image_url")
+
+    if result.summary:
+        result.summary = result.summary.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
+    if result.comparison and result.comparison.conclusion:
+        result.comparison.conclusion = result.comparison.conclusion.replace("RetailMind AI", "SmartPick").replace("RetailMind", "SmartPick")
 
     dur_ms = (time.perf_counter() - t0) * 1000
     logger.info("stage=context_response duration_ms=%.1f has_comparison=%s", dur_ms, bool(result.comparison))

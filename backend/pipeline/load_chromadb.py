@@ -1,5 +1,5 @@
 """
-Load RetailMind AI product data into ChromaDB.
+Load SmartPick product data into ChromaDB.
 
 Inputs:
     data/products_master.parquet
@@ -650,7 +650,7 @@ def create_collection():
         name=COLLECTION_NAME,
         metadata={
             "description": (
-                "RetailMind AI product collection "
+                "SmartPick product collection "
                 "using BGE-M3 embeddings"
             ),
             "embedding_model": "BAAI/bge-m3",
@@ -1044,7 +1044,7 @@ def main():
 
     print()
     print("=" * 70)
-    print("RetailMind AI - ChromaDB Loader")
+    print("SmartPick - ChromaDB Loader")
     print("=" * 70)
 
     print()

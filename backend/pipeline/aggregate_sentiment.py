@@ -48,7 +48,7 @@ def parse_aspect_sentiments(value):
 # ============================================================
 
 print("=" * 70)
-print("RETAILMIND AI - PRODUCT SENTIMENT AGGREGATION")
+print("SMARTPICK - PRODUCT SENTIMENT AGGREGATION")
 print("=" * 70)
 
 

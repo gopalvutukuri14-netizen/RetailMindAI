@@ -1,5 +1,5 @@
 """
-LangGraph StateGraph wiring for RetailMind AI.
+LangGraph StateGraph wiring for SmartPick.
 
 Builds the full agent pipeline as a directed graph with conditional
 routing based on query intent:
@@ -59,7 +59,7 @@ def _route_after_router(state: PipelineState) -> str:
 
 def build_graph() -> StateGraph:
     """
-    Construct and compile the RetailMind AI pipeline graph.
+    Construct and compile the SmartPick pipeline graph.
 
     Returns a compiled LangGraph ``CompiledGraph`` that accepts a
     ``PipelineState`` dict and executes all nodes in dependency order.
@@ -144,7 +144,7 @@ def run_pipeline(
     return_state: bool = False,
 ) -> ResponseResult | tuple[ResponseResult, PipelineState]:
     """
-    Run the full RetailMind AI pipeline end-to-end.
+    Run the full SmartPick pipeline end-to-end.
 
     Args:
         raw_query:          The user's natural-language shopping query.
@@ -206,7 +206,7 @@ def demo():
         python -m backend.orchestrator.graph
     """
     print("=" * 60)
-    print("RetailMind AI -- Full Pipeline Demo")
+    print("SmartPick -- Full Pipeline Demo")
     print("=" * 60)
 
     # Test 1: Normal product query

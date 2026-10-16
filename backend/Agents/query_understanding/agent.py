@@ -34,7 +34,7 @@ class QueryUnderstandingAgent:
             raise ValueError("Query cannot be empty.")
 
         prompt = f"""
-You are the Query Understanding Agent for RetailMind AI.
+You are the Query Understanding Agent for SmartPick.
 
 Your ONLY task is to convert the user's natural-language
 retail query into the structured QueryUnderstanding schema.
@@ -288,7 +288,7 @@ if __name__ == "__main__":
     ]
 
     print("=" * 70)
-    print("RETAILMIND AI - QUERY UNDERSTANDING AGENT")
+    print("SMARTPICK - QUERY UNDERSTANDING AGENT")
     print("=" * 70)
 
     for query in test_queries:

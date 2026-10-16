@@ -1,5 +1,5 @@
 """
-Full Seven-Agent LangGraph Pipeline Evaluation for RetailMind AI.
+Full Seven-Agent LangGraph Pipeline Evaluation for SmartPick.
 
 Runs the real end-to-end pipeline against ChromaDB and Gemini for all six product categories:
 1. Phones: Samsung phone under ₹30000 with 8GB RAM
@@ -359,7 +359,7 @@ def evaluate_query(tc: dict) -> EvaluationReport:
 
 def run_full_evaluation():
     print("\n" + "#" * 80)
-    print("RETAILMIND AI — FULL SEVEN-AGENT PIPELINE EVALUATION")
+    print("SMARTPICK — FULL SEVEN-AGENT PIPELINE EVALUATION")
     print("Testing real LangGraph workflow across all six product categories")
     print("#" * 80)
 
